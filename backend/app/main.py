@@ -5,11 +5,12 @@ import re
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, ValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from pydantic import BaseModel, Field, StringConstraints, ValidationError
 from sqlmodel import Session, select
 
 from app.db import get_session, init_db
@@ -39,8 +40,9 @@ async def api_error(_: Request, exc: ApiError):
     return JSONResponse({"error": {"code": exc.code, "message": exc.message}}, status_code=exc.status)
 
 
-@app.exception_handler(HTTPException)
-async def http_error(_: Request, exc: HTTPException):
+@app.exception_handler(StarletteHTTPException)
+async def http_error(_: Request, exc: StarletteHTTPException):
+    """Starlette's base class, so routing errors (405 on OPTIONS, say) use the envelope too."""
     return JSONResponse({"error": {"code": "http_error", "message": str(exc.detail)}}, status_code=exc.status_code)
 
 
@@ -103,10 +105,19 @@ def owned_project(session: Session, project_id: str, owner: str) -> Project:
 
 
 class ProjectIn(BaseModel):
-    topic: str = Field(min_length=3, max_length=200)
+    # stripped before the length check, so "   " isn't a topic
+    topic: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=200)]
     notes: str = Field(default="", max_length=12000)
     level: str = Field(default="intro", pattern="^(intro|intermediate|advanced)$")
     minutes: int = Field(default=3, ge=1, le=5)
+
+
+def iso(dt) -> str:
+    """UTC with an explicit offset. SQLite hands datetimes back without one, and a browser
+    reads an offset-less time as its own local time."""
+    from datetime import timezone
+
+    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).isoformat()
 
 
 def project_out(project: Project, owner: str | None, voices: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -123,8 +134,8 @@ def project_out(project: Project, owner: str | None, voices: dict[str, Any] | No
         "storyboard": project.storyboard,
         "voices": voices or {},
         "is_owner": owner is not None and owner == project.owner,
-        "created_at": project.created_at.isoformat(),
-        "updated_at": project.updated_at.isoformat(),
+        "created_at": iso(project.created_at),
+        "updated_at": iso(project.updated_at),
     }
 
 
@@ -136,7 +147,7 @@ def project_summary(project: Project) -> dict[str, Any]:
         "topic": project.topic,
         "status": project.status,
         "scenes": len(scenes),
-        "updated_at": project.updated_at.isoformat(),
+        "updated_at": iso(project.updated_at),
     }
 
 
