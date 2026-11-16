@@ -1,0 +1,92 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "summary": {
+      "description": "One sentence: what someone will understand after watching.",
+      "type": "string"
+    },
+    "scenes": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Stable id: s1, s2, ... Never reuse an id within a lesson.",
+            "type": "string"
+          },
+          "layout": {
+            "enum": [
+              "title",
+              "points",
+              "steps",
+              "compare",
+              "definition",
+              "example",
+              "code",
+              "summary"
+            ],
+            "type": "string"
+          },
+          "heading": {
+            "description": "The scene's title on screen. At most 8 words.",
+            "type": "string"
+          },
+          "subheading": {
+            "description": "One short line under the heading, or an empty string.",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "text": {
+                  "description": "What appears on screen. Short: at most 9 words.",
+                  "type": "string"
+                },
+                "detail": {
+                  "description": "A smaller second line, or an empty string.",
+                  "type": "string"
+                },
+                "at": {
+                  "description": "Index of the narration sentence during which this item appears.",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "text",
+                "detail",
+                "at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "code": {
+            "description": "Code for the code layout; an empty string otherwise.",
+            "type": "string"
+          },
+          "narration": {
+            "description": "What the voice says over this scene, written for the ear: 2 to 5 short sentences, plain words, numbers and symbols written the way they are said.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "layout",
+          "heading",
+          "subheading",
+          "items",
+          "code",
+          "narration"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "summary",
+    "scenes"
+  ],
+  "type": "object",
+  "title": "Storyboard"
+}
