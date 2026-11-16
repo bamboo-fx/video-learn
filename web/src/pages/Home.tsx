@@ -28,6 +28,8 @@ export function Home() {
   const lessons = useQuery(lessonsQuery)
   const config = useQuery(configQuery)
   const aiOff = config.data?.ai === false
+  // only allow a lesson once the server has said it can write one
+  const aiReady = config.data?.ai === true
 
   const create = useMutation({
     mutationFn: () => api.create({ topic: topic.trim(), notes: notes.trim(), level, minutes: Number(minutes) }),
@@ -49,7 +51,7 @@ export function Home() {
     },
   })
 
-  const canSubmit = topic.trim().length >= 3 && !create.isPending && !aiOff
+  const canSubmit = topic.trim().length >= 3 && !create.isPending && aiReady
 
   return (
     <Shell wide>
@@ -153,6 +155,14 @@ export function Home() {
       </form>
 
       <div className="mx-auto mt-4 max-w-3xl">
+        {config.isError ? (
+          <div role="status" className="mb-3 rounded-xl border border-border bg-card/60 px-4 py-3 text-center text-sm text-muted-foreground">
+            Couldn't check whether the server can write lessons.{" "}
+            <button type="button" className="font-medium text-ember underline-offset-4 hover:underline" onClick={() => config.refetch()}>
+              Try again
+            </button>
+          </div>
+        ) : null}
         {aiOff ? (
           <div role="status" className="mb-3 rounded-xl border border-border bg-card/60 px-4 py-3 text-center text-sm text-muted-foreground">
             AI writing isn't set up on this server yet, so new lessons can't be made right now.{" "}
