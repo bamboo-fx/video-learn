@@ -3,6 +3,7 @@ import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 
 import { App } from "./App"
+import { OfflineNotice } from "./components/common/Offline"
 import { Toaster } from "./components/ui/sonner"
 import { TooltipProvider } from "./components/ui/tooltip"
 import "./index.css"
@@ -18,6 +19,7 @@ createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={queryClient}>
       <TooltipProvider delayDuration={300}>
         <App />
+        <OfflineNotice />
         <Toaster position="bottom-center" />
       </TooltipProvider>
     </QueryClientProvider>
