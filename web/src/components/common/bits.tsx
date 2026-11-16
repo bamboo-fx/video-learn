@@ -63,9 +63,16 @@ export function Shell({ children, wide }: { children: ReactNode; wide?: boolean 
     <div className="min-h-full animate-in duration-200 fade-in">
       <header className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
         <Logo />
-        <Button variant="ghost" size="sm" onClick={() => navigate("/demo")}>
-          Watch an example
-        </Button>
+        <nav className="flex items-center gap-1">
+          <Button variant="ghost" size="sm" onClick={() => navigate("/connect")}>
+            <span className="sm:hidden">From Claude</span>
+            <span className="hidden sm:inline">Use it from Claude</span>
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => navigate("/demo")}>
+            <span className="sm:hidden">Example</span>
+            <span className="hidden sm:inline">Watch an example</span>
+          </Button>
+        </nav>
       </header>
       <main className={cn("mx-auto px-5 pb-24", wide ? "max-w-6xl" : "max-w-3xl")}>{children}</main>
     </div>

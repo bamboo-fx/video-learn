@@ -58,6 +58,12 @@ def check(session: Session, owner: str, kind: str, characters: int = 0) -> str |
             return "That's the most lessons that can be made from one address in a day. Try again tomorrow."
         if count(Usage.kind == "import") >= _int("LIMIT_IMPORTS_PER_DAY", 1000):
             return "The site has made as many lessons today as it can hold. Try again tomorrow."
+    elif kind == "connector_open":
+        # opening a repository through the claude.ai connector costs GitHub bandwidth, not AI
+        if count(Usage.owner == owner, Usage.kind == "connector_open") >= _int("LIMIT_REPO_OPENS_PER_ADDRESS", 60):
+            return "That's the most repositories that can be opened from one address in a day. Try again tomorrow."
+        if count(Usage.kind == "connector_open") >= _int("LIMIT_REPO_OPENS_PER_DAY", 2000):
+            return "The site has opened as many repositories today as it can. Try again tomorrow."
     elif kind == "voice":
         if chars(Usage.owner == owner, Usage.kind == "voice") + characters > _int("LIMIT_VOICE_CHARS_PER_BROWSER", 12000):
             return "You've used today's voice allowance. The lesson still plays with captions."

@@ -61,6 +61,18 @@ scenes that changed get re-voiced and the person can still tweak everything by h
   skill costs the site nothing and can't leak code.
 - `backend/tests/test_lesson_skill.py` runs the helper against throwaway git repos.
 
+## The claude.ai connector (backend/app/connector.py, served at /mcp)
+
+- A remote MCP server (mcp 2.x `MCPServer`, stateless JSON, POST only). Tools: `open_repo`,
+  `list_files`, `read_file`, `search` (read-only) and `create_lesson` (grounded, unvoiced,
+  claim link). The user's Claude does the reading; the site runs no AI for it.
+- Public only, by construction: repositories come from codeload's anonymous archive endpoint,
+  never with the server's `GITHUB_TOKEN`. Keep it that way (a test checks).
+- Repository text is untrusted: every read result is labelled as data. Anticipated failures
+  raise `ToolError` (the SDK hides other exceptions' messages from the model).
+- The session manager runs once per instance, so `lifespan` builds a fresh `/mcp` route on
+  every start.
+
 ## Rules
 
 - **Secrets live only in environment variables.** This repo is PUBLIC. Never commit a
