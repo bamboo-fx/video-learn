@@ -32,6 +32,7 @@ export function usePlayback(timeline: Timeline): Playback {
   const timelineRef = useRef(timeline)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const lastFrame = useRef<number | null>(null)
+  const rafId = useRef<number | null>(null)
   const unlocked = useRef(false)
   const pending = useRef(false)
 
@@ -42,6 +43,9 @@ export function usePlayback(timeline: Timeline): Playback {
     audio.preload = "auto"
     audioRef.current = audio
     return () => {
+      // leaving the editor stops everything, including a frame already scheduled
+      playingRef.current = false
+      if (rafId.current !== null) cancelAnimationFrame(rafId.current)
       audio.pause()
       audio.src = ""
     }
@@ -122,7 +126,7 @@ export function usePlayback(timeline: Timeline): Playback {
     }
     timeRef.current = t
     setTime(t)
-    if (playingRef.current) requestAnimationFrame(frame)
+    if (playingRef.current) rafId.current = requestAnimationFrame(frame)
   }, [])
 
   const play = useCallback(() => {
@@ -141,7 +145,7 @@ export function usePlayback(timeline: Timeline): Playback {
     playingRef.current = true
     setPlaying(true)
     lastFrame.current = null
-    requestAnimationFrame(frame)
+    rafId.current = requestAnimationFrame(frame)
   }, [frame])
 
   const pause = useCallback(() => {

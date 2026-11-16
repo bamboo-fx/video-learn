@@ -109,8 +109,23 @@ function captionsFor(narration: string, words: Word[], sentences: [number, numbe
   return out
 }
 
+/** The server counts characters as Python does (code points); JavaScript strings count
+ * UTF-16 units, and an emoji is two of them. Map the server's offsets onto this string. */
+export function toUtf16Offsets(text: string, words: Word[]): Word[] {
+  if (!/[\uD800-\uDFFF]/.test(text)) return words
+  const at: number[] = []
+  let u = 0
+  for (const ch of text) {
+    at.push(u)
+    u += ch.length
+  }
+  at.push(u)
+  const map = (cp: number) => at[Math.min(cp, at.length - 1)]
+  return words.map((w) => ({ ...w, start_char: map(w.start_char), end_char: map(w.end_char) }))
+}
+
 export function sceneTiming(scene: Scene, index: number, start: number, voice: Voice | null): SceneTiming {
-  const raw = voice ? voice.words : estimateWords(scene.narration)
+  const raw = voice ? toUtf16Offsets(scene.narration, voice.words) : estimateWords(scene.narration)
   const words = raw.map((w) => ({ ...w, start: w.start + LEAD, end: w.end + LEAD }))
   const spans = sentenceSpans(scene.narration)
   const sentences: Span[] = spans.map(([a, b]) => {
