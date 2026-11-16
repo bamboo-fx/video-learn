@@ -16,3 +16,6 @@ web/dist/
 # os / tools
 .DS_Store
 .context/
+
+# local database
+*.db
