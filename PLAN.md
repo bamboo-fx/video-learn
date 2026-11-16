@@ -22,6 +22,13 @@ The course requirements each slice meets are numbered as in the project brief:
 | 11 | #10 | Phone layout, accessibility, network failure states | frontend | 2 | Lab 6 standard on a phone on cell data |
 | 12 | #11 | `/snap`: a skill that screenshots the live app into `process/` | harness | AI workflow | Every UI change has dated phone and desktop screenshots |
 
+| 13 | #18 | Read a public GitHub repository into a cached snapshot | backend | 5, 6 | A repo link becomes source files keyed by commit; bad repos fail with a sentence |
+| 14 | #19 | Claude researches the repo and cites real lines | backend | 5 | Every code scene is filled from the file; bad citations go back to Claude |
+| 15 | #20 | Repo lessons in the editor | frontend | 1, 2 | Paste a repo and a question; see what Claude reads; code shows real line numbers |
+
+Slices 13 to 15 narrow the product from any topic to a codebase: someone pastes a GitHub
+repository they need to understand (often one an AI agent helped write) and asks about it.
+
 After the design review: fixes from the group's worksheets, then quiz pauses (the lesson
 stops, asks a question, and Claude checks the answer) and video export.
 

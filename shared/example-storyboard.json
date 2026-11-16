@@ -9,6 +9,11 @@
       "subheading": "How a model learns by walking downhill",
       "items": [],
       "code": "",
+      "source": {
+        "path": "",
+        "start_line": 0,
+        "end_line": 0
+      },
       "narration": "Every model you train has to answer one question. How do I change my numbers so I make fewer mistakes? Gradient descent is the answer almost every model uses."
     },
     {
@@ -17,9 +22,19 @@
       "heading": "Loss",
       "subheading": "One number for how wrong the model is",
       "items": [
-        { "text": "Average error over the training data", "detail": "Lower is better. Zero means every prediction is right.", "at": 1 }
+        {
+          "text": "Average error over the training data",
+          "detail": "Lower is better. Zero means every prediction is right.",
+          "at": 1,
+          "line": 0
+        }
       ],
       "code": "",
+      "source": {
+        "path": "",
+        "start_line": 0,
+        "end_line": 0
+      },
       "narration": "First we need a way to measure mistakes. The loss is the average error over all the training data. When the loss goes down, the model is getting better."
     },
     {
@@ -28,11 +43,31 @@
       "heading": "The idea",
       "subheading": "Think of the loss as a hill",
       "items": [
-        { "text": "Each setting of the weights is a spot on the hill", "detail": "", "at": 0 },
-        { "text": "The gradient points uphill", "detail": "It is the direction the loss grows fastest.", "at": 1 },
-        { "text": "So step the other way", "detail": "", "at": 2 }
+        {
+          "text": "Each setting of the weights is a spot on the hill",
+          "detail": "",
+          "at": 0,
+          "line": 0
+        },
+        {
+          "text": "The gradient points uphill",
+          "detail": "It is the direction the loss grows fastest.",
+          "at": 1,
+          "line": 0
+        },
+        {
+          "text": "So step the other way",
+          "detail": "",
+          "at": 2,
+          "line": 0
+        }
       ],
       "code": "",
+      "source": {
+        "path": "",
+        "start_line": 0,
+        "end_line": 0
+      },
       "narration": "Picture every possible setting of the weights as a spot on a hill, and the height is the loss. The gradient tells you which way is uphill. So to lower the loss, you take a step the other way."
     },
     {
@@ -41,12 +76,37 @@
       "heading": "One step",
       "subheading": "",
       "items": [
-        { "text": "Compute the loss", "detail": "", "at": 0 },
-        { "text": "Compute the gradient", "detail": "", "at": 1 },
-        { "text": "Move the weights against it", "detail": "w = w - learning rate x gradient", "at": 2 },
-        { "text": "Repeat until the loss stops falling", "detail": "", "at": 3 }
+        {
+          "text": "Compute the loss",
+          "detail": "",
+          "at": 0,
+          "line": 0
+        },
+        {
+          "text": "Compute the gradient",
+          "detail": "",
+          "at": 1,
+          "line": 0
+        },
+        {
+          "text": "Move the weights against it",
+          "detail": "w = w - learning rate x gradient",
+          "at": 2,
+          "line": 0
+        },
+        {
+          "text": "Repeat until the loss stops falling",
+          "detail": "",
+          "at": 3,
+          "line": 0
+        }
       ],
       "code": "",
+      "source": {
+        "path": "",
+        "start_line": 0,
+        "end_line": 0
+      },
       "narration": "Here is a single step. Compute the loss, then compute its gradient. Move every weight a little bit against the gradient. Then do it again, until the loss stops going down."
     },
     {
@@ -55,10 +115,25 @@
       "heading": "The learning rate",
       "subheading": "How big each step is",
       "items": [
-        { "text": "Too small", "detail": "Safe, but it takes forever to reach the bottom.", "at": 1 },
-        { "text": "Too big", "detail": "It overshoots and bounces, or flies off the hill.", "at": 2 }
+        {
+          "text": "Too small",
+          "detail": "Safe, but it takes forever to reach the bottom.",
+          "at": 1,
+          "line": 0
+        },
+        {
+          "text": "Too big",
+          "detail": "It overshoots and bounces, or flies off the hill.",
+          "at": 2,
+          "line": 0
+        }
       ],
       "code": "",
+      "source": {
+        "path": "",
+        "start_line": 0,
+        "end_line": 0
+      },
       "narration": "The learning rate sets the size of each step. Make it too small, and training crawls. Make it too big, and you jump right over the bottom and bounce around, or even diverge."
     },
     {
@@ -67,10 +142,25 @@
       "heading": "In code",
       "subheading": "Linear regression, by hand",
       "items": [
-        { "text": "The gradient of the mean squared error", "detail": "", "at": 1 },
-        { "text": "The update rule", "detail": "", "at": 2 }
+        {
+          "text": "The gradient of the mean squared error",
+          "detail": "",
+          "at": 1,
+          "line": 0
+        },
+        {
+          "text": "The update rule",
+          "detail": "",
+          "at": 2,
+          "line": 0
+        }
       ],
       "code": "for epoch in range(1000):\n    pred = X @ w\n    grad = 2 * X.T @ (pred - y) / len(y)\n    w = w - lr * grad",
+      "source": {
+        "path": "",
+        "start_line": 0,
+        "end_line": 0
+      },
       "narration": "Here is the whole thing in four lines. We predict, then compute the gradient of the mean squared error. Then we nudge the weights against it, a thousand times."
     },
     {
@@ -79,11 +169,31 @@
       "heading": "What to remember",
       "subheading": "",
       "items": [
-        { "text": "Loss measures how wrong you are", "detail": "", "at": 0 },
-        { "text": "The gradient points uphill", "detail": "", "at": 1 },
-        { "text": "Step downhill, by the learning rate", "detail": "", "at": 2 }
+        {
+          "text": "Loss measures how wrong you are",
+          "detail": "",
+          "at": 0,
+          "line": 0
+        },
+        {
+          "text": "The gradient points uphill",
+          "detail": "",
+          "at": 1,
+          "line": 0
+        },
+        {
+          "text": "Step downhill, by the learning rate",
+          "detail": "",
+          "at": 2,
+          "line": 0
+        }
       ],
       "code": "",
+      "source": {
+        "path": "",
+        "start_line": 0,
+        "end_line": 0
+      },
       "narration": "So, three things to remember. The loss measures how wrong you are. The gradient points uphill, and each step moves you downhill by an amount the learning rate decides."
     }
   ]

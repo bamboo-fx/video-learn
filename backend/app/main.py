@@ -17,9 +17,9 @@ from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, col, select
 
-from app import limits, llm, tts
-from app.db import get_session, init_db
-from app.models import Clip, Project, Usage, now
+from app import github, grounding, limits, llm, tts
+from app.db import engine, get_session, init_db
+from app.models import Clip, Project, RepoSnapshot, Usage, now
 from app.storyboard import Storyboard, normalize
 
 
@@ -109,7 +109,8 @@ def owned_project(session: Session, project_id: str, owner: str) -> Project:
 
 
 class ProjectIn(BaseModel):
-    topic: str = Field(min_length=3, max_length=200)
+    topic: str = Field(min_length=3, max_length=200, description="What they want to learn; for a repository, their question about it.")
+    repo: str = Field(default="", max_length=300, description="A public GitHub repository link, or empty for a topic lesson.")
     notes: str = Field(default="", max_length=12000)
     level: str = Field(default="intro", pattern="^(intro|intermediate|advanced)$")
     minutes: int = Field(default=3, ge=1, le=5)
@@ -170,6 +171,9 @@ def project_out(project: Project, owner: str | None, voices: dict[str, Any] | No
         "status": project.status,
         "error": project.error,
         "storyboard": project.storyboard,
+        "repo": project.repo or "",
+        "repo_sha": project.repo_sha or "",
+        "progress": (project.progress or [])[-12:],
         "voices": voices or {},
         "is_owner": owner is not None and owner == project.owner,
         "created_at": project.created_at.isoformat(),
@@ -183,6 +187,7 @@ def project_summary(project: Project) -> dict[str, Any]:
         "id": project.id,
         "title": project.title or project.topic,
         "topic": project.topic,
+        "repo": project.repo or "",
         "status": project.status,
         "scenes": len(scenes),
         "updated_at": project.updated_at.isoformat(),
@@ -212,7 +217,14 @@ def list_projects(session: SessionDep, owner: OwnerDep):
 
 @app.post("/api/projects", status_code=201)
 def create_project(body: ProjectIn, session: SessionDep, owner: OwnerDep):
-    project = Project(owner=owner, topic=body.topic.strip(), notes=body.notes.strip(), level=body.level, minutes=body.minutes)
+    repo = ""
+    if body.repo.strip():
+        try:
+            o, r, _ = github.parse_repo(body.repo)
+        except github.RepoError as exc:
+            raise ApiError(exc.status, exc.code, exc.message) from exc
+        repo = f"{o}/{r}"
+    project = Project(owner=owner, topic=body.topic.strip(), notes=body.notes.strip(), level=body.level, minutes=body.minutes, repo=repo)
     session.add(project)
     session.commit()
     session.refresh(project)
@@ -235,6 +247,8 @@ def save_storyboard(project_id: str, body: StoryboardIn, session: SessionDep, ow
     project = owned_project(session, project_id, owner)
     try:
         board = normalize(Storyboard.model_validate(body.storyboard))
+        if project.repo and project.repo_sha and (snap := load_snapshot(session, f"{project.repo}@{project.repo_sha}")):
+            board = grounding.ground(board, snap)  # code on screen always comes from the file
     except ValidationError as exc:
         first = exc.errors()[0]
         where = ".".join(str(p) for p in first["loc"])
@@ -282,6 +296,52 @@ def set_project(session: Session, project_id: str, **fields: Any) -> Project:
     return project
 
 
+_snapshots: dict[str, github.Snapshot] = {}
+
+
+def load_snapshot(session: Session, key: str) -> github.Snapshot | None:
+    """A stored repository, from memory if this server read it recently."""
+    if key in _snapshots:
+        return _snapshots[key]
+    row = session.get(RepoSnapshot, key)
+    if not row:
+        return None
+    snap = github.Snapshot.unpack(row.owner, row.repo, row.sha, row.ref, row.description, row.files)
+    if len(_snapshots) > 16:
+        _snapshots.pop(next(iter(_snapshots)))
+    _snapshots[key] = snap
+    return snap
+
+
+def fetch_snapshot(session: Session, repo: str) -> github.Snapshot:
+    """Download the repository's current commit, unless that commit is already stored."""
+    owner, name = repo.split("/", 1)
+    snap = github.download(owner, name)
+    if not session.get(RepoSnapshot, snap.key):
+        session.add(RepoSnapshot(key=snap.key, owner=snap.owner, repo=snap.repo, sha=snap.sha, ref=snap.ref,
+                                 description=snap.description, file_count=len(snap.files), files=snap.pack()))
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()  # another request stored the same commit first
+    _snapshots[snap.key] = snap
+    return snap
+
+
+def progress_writer(project_id: str):
+    """Records what Claude is doing, in its own short transaction, for the waiting screen."""
+
+    def write(text: str) -> None:
+        with Session(engine) as s:
+            p = s.get(Project, project_id)
+            if p:
+                p.progress = [*(p.progress or [])[-30:], text]
+                s.add(p)
+                s.commit()
+
+    return write
+
+
 @app.post("/api/projects/{project_id}/write")
 def write_project(project_id: str, session: SessionDep, owner: OwnerDep):
     """Claude writes the lesson. Runs on the person's click, never on page load."""
@@ -302,18 +362,35 @@ def write_project(project_id: str, session: SessionDep, owner: OwnerDep):
     if not claimed:
         raise ApiError(409, "already_writing", "This lesson is already being written.")
 
-    topic, notes, level, minutes = project.topic, project.notes, project.level, project.minutes
-    session.close()  # don't hold a database connection while Claude writes
+    topic, notes, level, minutes, repo = project.topic, project.notes, project.level, project.minutes, project.repo
+    voice_id = project.voice_id or tts.voice_id()
+    session.close()  # don't hold a database connection while GitHub or Claude works
+    progress = progress_writer(project_id)
+    repo_sha = ""
     try:
-        board, call = llm.write_storyboard(topic, notes, level, minutes)
+        if repo:
+            set_project(session, project_id, progress=[f"Downloading github.com/{repo}"])
+            session.close()
+            snap = fetch_snapshot(session, repo)
+            repo_sha = snap.sha
+            set_project(session, project_id, repo_sha=snap.sha,
+                        progress=[f"Downloaded {len(snap.files)} files from github.com/{snap.name}"])
+            session.close()
+            board, calls = llm.write_repo_lesson(snap, topic, level, minutes, progress)
+        else:
+            board, call = llm.write_storyboard(topic, notes, level, minutes)
+            calls = [call]
+    except github.RepoError as exc:
+        set_project(session, project_id, status="failed", error=exc.message)
+        raise ApiError(exc.status, exc.code, exc.message) from exc
     except llm.AIError as exc:
         log_calls(session, project_id, owner, "write", exc.calls, error=exc.code)
         set_project(session, project_id, status="failed", error=exc.message)
         raise ApiError(exc.status, exc.code, exc.message) from exc
 
-    log_calls(session, project_id, owner, "write", [call])
+    log_calls(session, project_id, owner, "write", calls)
     project = set_project(session, project_id, storyboard=board.model_dump(), title=board.title,
-                          voice_id=project.voice_id or tts.voice_id(), status="ready", error="")
+                          voice_id=voice_id, status="ready", error="", **({"repo_sha": repo_sha} if repo_sha else {}))
     return project_out(project, owner, voices_for(session, project))
 
 
@@ -411,9 +488,10 @@ def edit_project(project_id: str, body: EditIn, session: SessionDep, owner: Owne
     board = Storyboard.model_validate(project.storyboard)
     started_from = project.updated_at
     notes = project.notes
+    snap = load_snapshot(session, f"{project.repo}@{project.repo_sha}") if project.repo and project.repo_sha else None
     session.close()  # don't hold a database connection while Claude edits
     try:
-        outcome = llm.edit_storyboard(board, body.instruction.strip(), body.scene_id, notes)
+        outcome = llm.edit_storyboard(board, body.instruction.strip(), body.scene_id, notes, snap=snap)
     except llm.AIError as exc:
         log_calls(session, project_id, owner, "edit", exc.calls, error=exc.code)
         raise ApiError(exc.status, exc.code, exc.message) from exc

@@ -17,7 +17,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-Layout = Literal["title", "points", "steps", "compare", "definition", "example", "code", "summary"]
+Layout = Literal["title", "points", "steps", "compare", "definition", "example", "code", "flow", "summary"]
 
 LAYOUTS: dict[str, str] = {
     "title": "Opening card: heading and subheading only, no items.",
@@ -26,7 +26,10 @@ LAYOUTS: dict[str, str] = {
     "compare": "Exactly two items side by side: text is each side's name, detail its description.",
     "definition": "One term in the heading, its definition as the single item, optional example as detail.",
     "example": "A worked example: the setup as subheading, then each line of working as an item.",
-    "code": "A short code listing in `code` (at most 14 lines), items point out what matters.",
+    "code": "Real code from the repository: set `source` to the file and line range (at most 14 lines); "
+    "the code is filled in from the file. Items point out what matters, each with the `line` it's about.",
+    "flow": "How pieces connect, left to right: two to five items, each a step or component (text) with "
+    "the file it lives in (detail). Good for 'what happens when...' scenes.",
     "summary": "The takeaways, two to four items. Usually the last scene.",
 }
 
@@ -42,6 +45,13 @@ class Item(Strict):
     text: str = Field(description="What appears on screen. Short: at most 9 words.")
     detail: str = Field(description="A smaller second line, or an empty string.")
     at: int = Field(ge=0, description="Index of the narration sentence during which this item appears.")
+    line: int = Field(ge=0, description="On a code scene, the file line this item is about (highlighted when it appears); 0 otherwise.")
+
+
+class Source(Strict):
+    path: str = Field(description="A file path in the repository, or an empty string when the scene has no source.")
+    start_line: int = Field(ge=0, description="First line, counting from 1; 0 when there's no source.")
+    end_line: int = Field(ge=0, description="Last line, inclusive; 0 when there's no source.")
 
 
 class Scene(Strict):
@@ -50,7 +60,8 @@ class Scene(Strict):
     heading: str = Field(description="The scene's title on screen. At most 8 words.")
     subheading: str = Field(description="One short line under the heading, or an empty string.")
     items: list[Item] = Field(max_length=MAX_ITEMS)
-    code: str = Field(description="Code for the code layout; an empty string otherwise.")
+    code: str = Field(description="Leave empty: on a code scene it's filled in from `source`.")
+    source: Source = Field(description="Where in the repository this scene comes from. Every scene that explains code cites it.")
     narration: str = Field(
         description="What the voice says over this scene, written for the ear: 2 to 5 short sentences, "
         "plain words, numbers and symbols written the way they are said."
@@ -101,6 +112,8 @@ def normalize(board: Storyboard) -> Storyboard:
             scene.items = []
         if scene.layout != "code":
             scene.code = ""
+            for item in scene.items:
+                item.line = 0
     return board
 
 

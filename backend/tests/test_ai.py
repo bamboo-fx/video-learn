@@ -200,7 +200,7 @@ def test_edit_route_saves_and_reports_changes(client, owner, example, monkeypatc
     p = make_written(client, owner, example, monkeypatch)
     edited = Storyboard.model_validate(example)
     edited.scenes[1].heading = "Loss, simply"
-    monkeypatch.setattr(llm, "edit_storyboard", lambda *a: llm.EditOutcome(edited, "Simplified scene 2.", [{"kind": "updated", "scene_id": "s2", "note": "simpler"}], [llm.Call("claude-test", 10, 10, 1)]))
+    monkeypatch.setattr(llm, "edit_storyboard", lambda *a, **k: llm.EditOutcome(edited, "Simplified scene 2.", [{"kind": "updated", "scene_id": "s2", "note": "simpler"}], [llm.Call("claude-test", 10, 10, 1)]))
     r = client.post(f"/api/projects/{p['id']}/edit", json={"instruction": "simpler", "scene_id": "s2"}, headers=owner)
     assert r.status_code == 200, r.text
     body = r.json()
@@ -286,7 +286,7 @@ def test_an_edit_is_not_applied_over_newer_changes(client, owner, example, monke
     p = make_written(client, owner, example, monkeypatch, topic="Meanwhile")
     edited = Storyboard.model_validate(example)
 
-    def slow_edit(board, *a):
+    def slow_edit(board, *a, **k):
         # the person saves a change while Claude is working
         example["scenes"][0]["heading"] = "Changed meanwhile"
         client.put(f"/api/projects/{p['id']}/storyboard", json={"storyboard": example}, headers=owner)

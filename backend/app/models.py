@@ -3,6 +3,7 @@
 - Project: one lesson. Its storyboard is stored whole, as JSON.
 - Clip: one voiced piece of narration. Keyed by a hash of (voice, model, text), so the
   same sentence is never paid for twice and editing one scene re-voices only that scene.
+- RepoSnapshot: a GitHub repository's source files at one commit, for lessons about code.
 - Usage: one row per paid call (Claude or ElevenLabs), for the cost-benefit analysis
   and for the daily spending limits.
 """
@@ -35,8 +36,27 @@ class Project(SQLModel, table=True):
     status: str = "new"  # new | writing | ready | failed
     error: str = ""
     storyboard: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
+    # the codebase this lesson teaches ("owner/repo" at a commit), when it teaches one
+    repo: str = ""
+    repo_sha: str = ""
+    # what Claude is doing right now while it writes ("Reading app/main.py"), newest last
+    progress: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)
+
+
+class RepoSnapshot(SQLModel, table=True):
+    """A repository's source files at one commit, gzipped. Downloaded once per commit."""
+
+    key: str = Field(primary_key=True)  # owner/repo@sha
+    owner: str
+    repo: str
+    sha: str
+    ref: str
+    description: str = ""
+    file_count: int = 0
+    files: bytes = Field(sa_column=Column(LargeBinary, nullable=False))
+    created_at: datetime = Field(default_factory=now)
 
 
 class Clip(SQLModel, table=True):

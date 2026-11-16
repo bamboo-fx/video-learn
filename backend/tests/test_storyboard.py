@@ -52,7 +52,7 @@ def test_normalize_repairs_ids_and_reveals():
     raw = json.loads(json.dumps(EXAMPLE))
     raw["scenes"][1]["id"] = "s1"  # duplicate
     raw["scenes"][2]["items"][0]["at"] = 40  # past the last sentence
-    raw["scenes"][0]["items"] = [{"text": "x", "detail": "", "at": 0}]  # items on a title card
+    raw["scenes"][0]["items"] = [{"text": "x", "detail": "", "at": 0, "line": 0}]  # items on a title card
     board = normalize(Storyboard.model_validate(raw))
     ids = [s.id for s in board.scenes]
     assert len(set(ids)) == len(ids)
