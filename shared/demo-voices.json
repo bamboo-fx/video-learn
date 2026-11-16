@@ -1,0 +1,2151 @@
+{
+ "s1": {
+  "hash": "520e502c3acfed155893f7e23f4343ee",
+  "text": "You paste a link to a repository and ask a question. A couple of minutes later you're watching a lesson about that code. Here's what happens in between, using this app's own code as the example.",
+  "url": "/demo-audio/520e502c3acfed155893f7e23f4343ee.mp3",
+  "duration": 10.913,
+  "words": [
+   {
+    "text": "You",
+    "start_char": 0,
+    "end_char": 3,
+    "start": 0.0,
+    "end": 0.163
+   },
+   {
+    "text": "paste",
+    "start_char": 4,
+    "end_char": 9,
+    "start": 0.244,
+    "end": 0.499
+   },
+   {
+    "text": "a",
+    "start_char": 10,
+    "end_char": 11,
+    "start": 0.534,
+    "end": 0.557
+   },
+   {
+    "text": "link",
+    "start_char": 12,
+    "end_char": 16,
+    "start": 0.627,
+    "end": 0.789
+   },
+   {
+    "text": "to",
+    "start_char": 17,
+    "end_char": 19,
+    "start": 0.836,
+    "end": 0.882
+   },
+   {
+    "text": "a",
+    "start_char": 20,
+    "end_char": 21,
+    "start": 0.929,
+    "end": 0.964
+   },
+   {
+    "text": "repository",
+    "start_char": 22,
+    "end_char": 32,
+    "start": 1.022,
+    "end": 1.695
+   },
+   {
+    "text": "and",
+    "start_char": 33,
+    "end_char": 36,
+    "start": 1.73,
+    "end": 1.8
+   },
+   {
+    "text": "ask",
+    "start_char": 37,
+    "end_char": 40,
+    "start": 1.846,
+    "end": 1.997
+   },
+   {
+    "text": "a",
+    "start_char": 41,
+    "end_char": 42,
+    "start": 2.043,
+    "end": 2.078
+   },
+   {
+    "text": "question.",
+    "start_char": 43,
+    "end_char": 52,
+    "start": 2.125,
+    "end": 2.647
+   },
+   {
+    "text": "A",
+    "start_char": 53,
+    "end_char": 54,
+    "start": 3.03,
+    "end": 3.1
+   },
+   {
+    "text": "couple",
+    "start_char": 55,
+    "end_char": 61,
+    "start": 3.17,
+    "end": 3.413
+   },
+   {
+    "text": "of",
+    "start_char": 62,
+    "end_char": 64,
+    "start": 3.437,
+    "end": 3.483
+   },
+   {
+    "text": "minutes",
+    "start_char": 65,
+    "end_char": 72,
+    "start": 3.529,
+    "end": 3.75
+   },
+   {
+    "text": "later",
+    "start_char": 73,
+    "end_char": 78,
+    "start": 3.796,
+    "end": 4.017
+   },
+   {
+    "text": "you're",
+    "start_char": 79,
+    "end_char": 85,
+    "start": 4.052,
+    "end": 4.226
+   },
+   {
+    "text": "watching",
+    "start_char": 86,
+    "end_char": 94,
+    "start": 4.249,
+    "end": 4.528
+   },
+   {
+    "text": "a",
+    "start_char": 95,
+    "end_char": 96,
+    "start": 4.574,
+    "end": 4.598
+   },
+   {
+    "text": "lesson",
+    "start_char": 97,
+    "end_char": 103,
+    "start": 4.656,
+    "end": 4.923
+   },
+   {
+    "text": "about",
+    "start_char": 104,
+    "end_char": 109,
+    "start": 4.957,
+    "end": 5.166
+   },
+   {
+    "text": "that",
+    "start_char": 110,
+    "end_char": 114,
+    "start": 5.201,
+    "end": 5.352
+   },
+   {
+    "text": "code.",
+    "start_char": 115,
+    "end_char": 120,
+    "start": 5.433,
+    "end": 5.956
+   },
+   {
+    "text": "Here's",
+    "start_char": 121,
+    "end_char": 127,
+    "start": 6.397,
+    "end": 6.653
+   },
+   {
+    "text": "what",
+    "start_char": 128,
+    "end_char": 132,
+    "start": 6.687,
+    "end": 6.803
+   },
+   {
+    "text": "happens",
+    "start_char": 133,
+    "end_char": 140,
+    "start": 6.861,
+    "end": 7.21
+   },
+   {
+    "text": "in",
+    "start_char": 141,
+    "end_char": 143,
+    "start": 7.268,
+    "end": 7.338
+   },
+   {
+    "text": "between,",
+    "start_char": 144,
+    "end_char": 152,
+    "start": 7.396,
+    "end": 8.069
+   },
+   {
+    "text": "using",
+    "start_char": 153,
+    "end_char": 158,
+    "start": 8.243,
+    "end": 8.533
+   },
+   {
+    "text": "this",
+    "start_char": 159,
+    "end_char": 163,
+    "start": 8.591,
+    "end": 8.719
+   },
+   {
+    "text": "app's",
+    "start_char": 164,
+    "end_char": 169,
+    "start": 8.789,
+    "end": 9.033
+   },
+   {
+    "text": "own",
+    "start_char": 170,
+    "end_char": 173,
+    "start": 9.102,
+    "end": 9.323
+   },
+   {
+    "text": "code",
+    "start_char": 174,
+    "end_char": 178,
+    "start": 9.392,
+    "end": 9.648
+   },
+   {
+    "text": "as",
+    "start_char": 179,
+    "end_char": 181,
+    "start": 9.671,
+    "end": 9.741
+   },
+   {
+    "text": "the",
+    "start_char": 182,
+    "end_char": 185,
+    "start": 9.787,
+    "end": 9.857
+   },
+   {
+    "text": "example.",
+    "start_char": 186,
+    "end_char": 194,
+    "start": 9.903,
+    "end": 10.913
+   }
+  ]
+ },
+ "s2": {
+  "hash": "7c1578a8e49d40ccd64e31413383266b",
+  "text": "It all starts in one request to the server. First the server downloads the repository. Then Claude reads the code and writes the lesson. Next, every line it cites is checked against the real files. Finally, each scene gets a voice.",
+  "url": "/demo-audio/7c1578a8e49d40ccd64e31413383266b.mp3",
+  "duration": 14.582,
+  "words": [
+   {
+    "text": "It",
+    "start_char": 0,
+    "end_char": 2,
+    "start": 0.0,
+    "end": 0.163
+   },
+   {
+    "text": "all",
+    "start_char": 3,
+    "end_char": 6,
+    "start": 0.209,
+    "end": 0.337
+   },
+   {
+    "text": "starts",
+    "start_char": 7,
+    "end_char": 13,
+    "start": 0.395,
+    "end": 0.662
+   },
+   {
+    "text": "in",
+    "start_char": 14,
+    "end_char": 16,
+    "start": 0.708,
+    "end": 0.789
+   },
+   {
+    "text": "one",
+    "start_char": 17,
+    "end_char": 20,
+    "start": 0.906,
+    "end": 1.091
+   },
+   {
+    "text": "request",
+    "start_char": 21,
+    "end_char": 28,
+    "start": 1.138,
+    "end": 1.509
+   },
+   {
+    "text": "to",
+    "start_char": 29,
+    "end_char": 31,
+    "start": 1.533,
+    "end": 1.591
+   },
+   {
+    "text": "the",
+    "start_char": 32,
+    "end_char": 35,
+    "start": 1.649,
+    "end": 1.718
+   },
+   {
+    "text": "server.",
+    "start_char": 36,
+    "end_char": 43,
+    "start": 1.765,
+    "end": 2.229
+   },
+   {
+    "text": "First",
+    "start_char": 44,
+    "end_char": 49,
+    "start": 2.833,
+    "end": 3.135
+   },
+   {
+    "text": "the",
+    "start_char": 50,
+    "end_char": 53,
+    "start": 3.17,
+    "end": 3.239
+   },
+   {
+    "text": "server",
+    "start_char": 54,
+    "end_char": 60,
+    "start": 3.297,
+    "end": 3.587
+   },
+   {
+    "text": "downloads",
+    "start_char": 61,
+    "end_char": 70,
+    "start": 3.657,
+    "end": 4.133
+   },
+   {
+    "text": "the",
+    "start_char": 71,
+    "end_char": 74,
+    "start": 4.156,
+    "end": 4.226
+   },
+   {
+    "text": "repository.",
+    "start_char": 75,
+    "end_char": 86,
+    "start": 4.284,
+    "end": 5.213
+   },
+   {
+    "text": "Then",
+    "start_char": 87,
+    "end_char": 91,
+    "start": 5.654,
+    "end": 5.875
+   },
+   {
+    "text": "Claude",
+    "start_char": 92,
+    "end_char": 98,
+    "start": 5.956,
+    "end": 6.362
+   },
+   {
+    "text": "reads",
+    "start_char": 99,
+    "end_char": 104,
+    "start": 6.444,
+    "end": 6.676
+   },
+   {
+    "text": "the",
+    "start_char": 105,
+    "end_char": 108,
+    "start": 6.711,
+    "end": 6.78
+   },
+   {
+    "text": "code",
+    "start_char": 109,
+    "end_char": 113,
+    "start": 6.827,
+    "end": 7.14
+   },
+   {
+    "text": "and",
+    "start_char": 114,
+    "end_char": 117,
+    "start": 7.187,
+    "end": 7.291
+   },
+   {
+    "text": "writes",
+    "start_char": 118,
+    "end_char": 124,
+    "start": 7.338,
+    "end": 7.57
+   },
+   {
+    "text": "the",
+    "start_char": 125,
+    "end_char": 128,
+    "start": 7.593,
+    "end": 7.663
+   },
+   {
+    "text": "lesson.",
+    "start_char": 129,
+    "end_char": 136,
+    "start": 7.721,
+    "end": 8.185
+   },
+   {
+    "text": "Next,",
+    "start_char": 137,
+    "end_char": 142,
+    "start": 8.696,
+    "end": 9.265
+   },
+   {
+    "text": "every",
+    "start_char": 143,
+    "end_char": 148,
+    "start": 9.358,
+    "end": 9.648
+   },
+   {
+    "text": "line",
+    "start_char": 149,
+    "end_char": 153,
+    "start": 9.718,
+    "end": 9.938
+   },
+   {
+    "text": "it",
+    "start_char": 154,
+    "end_char": 156,
+    "start": 9.961,
+    "end": 10.031
+   },
+   {
+    "text": "cites",
+    "start_char": 157,
+    "end_char": 162,
+    "start": 10.089,
+    "end": 10.461
+   },
+   {
+    "text": "is",
+    "start_char": 163,
+    "end_char": 165,
+    "start": 10.53,
+    "end": 10.646
+   },
+   {
+    "text": "checked",
+    "start_char": 166,
+    "end_char": 173,
+    "start": 10.704,
+    "end": 10.983
+   },
+   {
+    "text": "against",
+    "start_char": 174,
+    "end_char": 181,
+    "start": 11.006,
+    "end": 11.262
+   },
+   {
+    "text": "the",
+    "start_char": 182,
+    "end_char": 185,
+    "start": 11.297,
+    "end": 11.366
+   },
+   {
+    "text": "real",
+    "start_char": 186,
+    "end_char": 190,
+    "start": 11.424,
+    "end": 11.599
+   },
+   {
+    "text": "files.",
+    "start_char": 191,
+    "end_char": 197,
+    "start": 11.657,
+    "end": 12.202
+   },
+   {
+    "text": "Finally,",
+    "start_char": 198,
+    "end_char": 206,
+    "start": 12.644,
+    "end": 13.166
+   },
+   {
+    "text": "each",
+    "start_char": 207,
+    "end_char": 211,
+    "start": 13.224,
+    "end": 13.421
+   },
+   {
+    "text": "scene",
+    "start_char": 212,
+    "end_char": 217,
+    "start": 13.479,
+    "end": 13.781
+   },
+   {
+    "text": "gets",
+    "start_char": 218,
+    "end_char": 222,
+    "start": 13.839,
+    "end": 14.06
+   },
+   {
+    "text": "a",
+    "start_char": 223,
+    "end_char": 224,
+    "start": 14.095,
+    "end": 14.13
+   },
+   {
+    "text": "voice.",
+    "start_char": 225,
+    "end_char": 231,
+    "start": 14.199,
+    "end": 14.582
+   }
+  ]
+ },
+ "s3": {
+  "hash": "0947d82492394c3501173edd9348608d",
+  "text": "Instead of fetching files one by one, the server downloads the whole repository as a single archive from GitHub. That archive carries the full commit id, so every lesson is tied to one exact version of the code. Vendored folders, binaries and huge files are skipped, and when a repository is too big, source files are kept before docs and tests.",
+  "url": "/demo-audio/0947d82492394c3501173edd9348608d.mp3",
+  "duration": 20.944,
+  "words": [
+   {
+    "text": "Instead",
+    "start_char": 0,
+    "end_char": 7,
+    "start": 0.0,
+    "end": 0.348
+   },
+   {
+    "text": "of",
+    "start_char": 8,
+    "end_char": 10,
+    "start": 0.383,
+    "end": 0.43
+   },
+   {
+    "text": "fetching",
+    "start_char": 11,
+    "end_char": 19,
+    "start": 0.464,
+    "end": 0.731
+   },
+   {
+    "text": "files",
+    "start_char": 20,
+    "end_char": 25,
+    "start": 0.789,
+    "end": 1.103
+   },
+   {
+    "text": "one",
+    "start_char": 26,
+    "end_char": 29,
+    "start": 1.161,
+    "end": 1.289
+   },
+   {
+    "text": "by",
+    "start_char": 30,
+    "end_char": 32,
+    "start": 1.324,
+    "end": 1.44
+   },
+   {
+    "text": "one,",
+    "start_char": 33,
+    "end_char": 37,
+    "start": 1.509,
+    "end": 1.916
+   },
+   {
+    "text": "the",
+    "start_char": 38,
+    "end_char": 41,
+    "start": 2.125,
+    "end": 2.229
+   },
+   {
+    "text": "server",
+    "start_char": 42,
+    "end_char": 48,
+    "start": 2.287,
+    "end": 2.566
+   },
+   {
+    "text": "downloads",
+    "start_char": 49,
+    "end_char": 58,
+    "start": 2.624,
+    "end": 3.007
+   },
+   {
+    "text": "the",
+    "start_char": 59,
+    "end_char": 62,
+    "start": 3.03,
+    "end": 3.1
+   },
+   {
+    "text": "whole",
+    "start_char": 63,
+    "end_char": 68,
+    "start": 3.146,
+    "end": 3.32
+   },
+   {
+    "text": "repository",
+    "start_char": 69,
+    "end_char": 79,
+    "start": 3.355,
+    "end": 4.075
+   },
+   {
+    "text": "as",
+    "start_char": 80,
+    "end_char": 82,
+    "start": 4.122,
+    "end": 4.191
+   },
+   {
+    "text": "a",
+    "start_char": 83,
+    "end_char": 84,
+    "start": 4.249,
+    "end": 4.272
+   },
+   {
+    "text": "single",
+    "start_char": 85,
+    "end_char": 91,
+    "start": 4.331,
+    "end": 4.621
+   },
+   {
+    "text": "archive",
+    "start_char": 92,
+    "end_char": 99,
+    "start": 4.644,
+    "end": 4.992
+   },
+   {
+    "text": "from",
+    "start_char": 100,
+    "end_char": 104,
+    "start": 5.016,
+    "end": 5.132
+   },
+   {
+    "text": "GitHub.",
+    "start_char": 105,
+    "end_char": 112,
+    "start": 5.19,
+    "end": 5.666
+   },
+   {
+    "text": "That",
+    "start_char": 113,
+    "end_char": 117,
+    "start": 6.107,
+    "end": 6.293
+   },
+   {
+    "text": "archive",
+    "start_char": 118,
+    "end_char": 125,
+    "start": 6.339,
+    "end": 6.757
+   },
+   {
+    "text": "carries",
+    "start_char": 126,
+    "end_char": 133,
+    "start": 6.792,
+    "end": 7.047
+   },
+   {
+    "text": "the",
+    "start_char": 134,
+    "end_char": 137,
+    "start": 7.082,
+    "end": 7.152
+   },
+   {
+    "text": "full",
+    "start_char": 138,
+    "end_char": 142,
+    "start": 7.187,
+    "end": 7.349
+   },
+   {
+    "text": "commit",
+    "start_char": 143,
+    "end_char": 149,
+    "start": 7.407,
+    "end": 7.651
+   },
+   {
+    "text": "id,",
+    "start_char": 150,
+    "end_char": 153,
+    "start": 7.697,
+    "end": 8.185
+   },
+   {
+    "text": "so",
+    "start_char": 154,
+    "end_char": 156,
+    "start": 8.464,
+    "end": 8.603
+   },
+   {
+    "text": "every",
+    "start_char": 157,
+    "end_char": 162,
+    "start": 8.673,
+    "end": 8.847
+   },
+   {
+    "text": "lesson",
+    "start_char": 163,
+    "end_char": 169,
+    "start": 8.893,
+    "end": 9.172
+   },
+   {
+    "text": "is",
+    "start_char": 170,
+    "end_char": 172,
+    "start": 9.218,
+    "end": 9.3
+   },
+   {
+    "text": "tied",
+    "start_char": 173,
+    "end_char": 177,
+    "start": 9.346,
+    "end": 9.567
+   },
+   {
+    "text": "to",
+    "start_char": 178,
+    "end_char": 180,
+    "start": 9.59,
+    "end": 9.648
+   },
+   {
+    "text": "one",
+    "start_char": 181,
+    "end_char": 184,
+    "start": 9.764,
+    "end": 9.996
+   },
+   {
+    "text": "exact",
+    "start_char": 185,
+    "end_char": 190,
+    "start": 10.031,
+    "end": 10.344
+   },
+   {
+    "text": "version",
+    "start_char": 191,
+    "end_char": 198,
+    "start": 10.391,
+    "end": 10.681
+   },
+   {
+    "text": "of",
+    "start_char": 199,
+    "end_char": 201,
+    "start": 10.716,
+    "end": 10.762
+   },
+   {
+    "text": "the",
+    "start_char": 202,
+    "end_char": 205,
+    "start": 10.797,
+    "end": 10.867
+   },
+   {
+    "text": "code.",
+    "start_char": 206,
+    "end_char": 211,
+    "start": 10.901,
+    "end": 11.319
+   },
+   {
+    "text": "Vendored",
+    "start_char": 212,
+    "end_char": 220,
+    "start": 11.83,
+    "end": 12.283
+   },
+   {
+    "text": "folders,",
+    "start_char": 221,
+    "end_char": 229,
+    "start": 12.329,
+    "end": 12.829
+   },
+   {
+    "text": "binaries",
+    "start_char": 230,
+    "end_char": 238,
+    "start": 12.887,
+    "end": 13.56
+   },
+   {
+    "text": "and",
+    "start_char": 239,
+    "end_char": 242,
+    "start": 13.618,
+    "end": 13.723
+   },
+   {
+    "text": "huge",
+    "start_char": 243,
+    "end_char": 247,
+    "start": 13.804,
+    "end": 14.106
+   },
+   {
+    "text": "files",
+    "start_char": 248,
+    "end_char": 253,
+    "start": 14.152,
+    "end": 14.512
+   },
+   {
+    "text": "are",
+    "start_char": 254,
+    "end_char": 257,
+    "start": 14.559,
+    "end": 14.663
+   },
+   {
+    "text": "skipped,",
+    "start_char": 258,
+    "end_char": 266,
+    "start": 14.698,
+    "end": 15.162
+   },
+   {
+    "text": "and",
+    "start_char": 267,
+    "end_char": 270,
+    "start": 15.603,
+    "end": 15.754
+   },
+   {
+    "text": "when",
+    "start_char": 271,
+    "end_char": 275,
+    "start": 15.801,
+    "end": 15.929
+   },
+   {
+    "text": "a",
+    "start_char": 276,
+    "end_char": 277,
+    "start": 15.963,
+    "end": 15.987
+   },
+   {
+    "text": "repository",
+    "start_char": 278,
+    "end_char": 288,
+    "start": 16.068,
+    "end": 16.822
+   },
+   {
+    "text": "is",
+    "start_char": 289,
+    "end_char": 291,
+    "start": 16.869,
+    "end": 16.939
+   },
+   {
+    "text": "too",
+    "start_char": 292,
+    "end_char": 295,
+    "start": 16.985,
+    "end": 17.113
+   },
+   {
+    "text": "big,",
+    "start_char": 296,
+    "end_char": 300,
+    "start": 17.182,
+    "end": 17.589
+   },
+   {
+    "text": "source",
+    "start_char": 301,
+    "end_char": 307,
+    "start": 17.914,
+    "end": 18.262
+   },
+   {
+    "text": "files",
+    "start_char": 308,
+    "end_char": 313,
+    "start": 18.297,
+    "end": 18.622
+   },
+   {
+    "text": "are",
+    "start_char": 314,
+    "end_char": 317,
+    "start": 18.657,
+    "end": 18.75
+   },
+   {
+    "text": "kept",
+    "start_char": 318,
+    "end_char": 322,
+    "start": 18.785,
+    "end": 18.982
+   },
+   {
+    "text": "before",
+    "start_char": 323,
+    "end_char": 329,
+    "start": 19.017,
+    "end": 19.261
+   },
+   {
+    "text": "docs",
+    "start_char": 330,
+    "end_char": 334,
+    "start": 19.295,
+    "end": 19.586
+   },
+   {
+    "text": "and",
+    "start_char": 335,
+    "end_char": 338,
+    "start": 19.62,
+    "end": 19.702
+   },
+   {
+    "text": "tests.",
+    "start_char": 339,
+    "end_char": 345,
+    "start": 19.748,
+    "end": 20.944
+   }
+  ]
+ },
+ "s4": {
+  "hash": "f82892ecc12fd8d14bc4698751dae887",
+  "text": "Claude reads files with three tools, then hands in the finished lesson through a fourth one. The server doesn't just accept it. It checks every file and line range Claude cited, and if something doesn't hold up, the problems go back to Claude to fix and submit again.",
+  "url": "/demo-audio/f82892ecc12fd8d14bc4698751dae887.mp3",
+  "duration": 15.883,
+  "words": [
+   {
+    "text": "Claude",
+    "start_char": 0,
+    "end_char": 6,
+    "start": 0.0,
+    "end": 0.383
+   },
+   {
+    "text": "reads",
+    "start_char": 7,
+    "end_char": 12,
+    "start": 0.43,
+    "end": 0.639
+   },
+   {
+    "text": "files",
+    "start_char": 13,
+    "end_char": 18,
+    "start": 0.697,
+    "end": 1.057
+   },
+   {
+    "text": "with",
+    "start_char": 19,
+    "end_char": 23,
+    "start": 1.091,
+    "end": 1.219
+   },
+   {
+    "text": "three",
+    "start_char": 24,
+    "end_char": 29,
+    "start": 1.265,
+    "end": 1.486
+   },
+   {
+    "text": "tools,",
+    "start_char": 30,
+    "end_char": 36,
+    "start": 1.533,
+    "end": 2.136
+   },
+   {
+    "text": "then",
+    "start_char": 37,
+    "end_char": 41,
+    "start": 2.31,
+    "end": 2.485
+   },
+   {
+    "text": "hands",
+    "start_char": 42,
+    "end_char": 47,
+    "start": 2.577,
+    "end": 2.879
+   },
+   {
+    "text": "in",
+    "start_char": 48,
+    "end_char": 50,
+    "start": 2.926,
+    "end": 2.984
+   },
+   {
+    "text": "the",
+    "start_char": 51,
+    "end_char": 54,
+    "start": 3.03,
+    "end": 3.1
+   },
+   {
+    "text": "finished",
+    "start_char": 55,
+    "end_char": 63,
+    "start": 3.146,
+    "end": 3.46
+   },
+   {
+    "text": "lesson",
+    "start_char": 64,
+    "end_char": 70,
+    "start": 3.518,
+    "end": 3.913
+   },
+   {
+    "text": "through",
+    "start_char": 71,
+    "end_char": 78,
+    "start": 4.029,
+    "end": 4.261
+   },
+   {
+    "text": "a",
+    "start_char": 79,
+    "end_char": 80,
+    "start": 4.296,
+    "end": 4.319
+   },
+   {
+    "text": "fourth",
+    "start_char": 81,
+    "end_char": 87,
+    "start": 4.365,
+    "end": 4.598
+   },
+   {
+    "text": "one.",
+    "start_char": 88,
+    "end_char": 92,
+    "start": 4.667,
+    "end": 4.969
+   },
+   {
+    "text": "The",
+    "start_char": 93,
+    "end_char": 96,
+    "start": 5.294,
+    "end": 5.422
+   },
+   {
+    "text": "server",
+    "start_char": 97,
+    "end_char": 103,
+    "start": 5.48,
+    "end": 5.782
+   },
+   {
+    "text": "doesn't",
+    "start_char": 104,
+    "end_char": 111,
+    "start": 5.851,
+    "end": 6.107
+   },
+   {
+    "text": "just",
+    "start_char": 112,
+    "end_char": 116,
+    "start": 6.153,
+    "end": 6.339
+   },
+   {
+    "text": "accept",
+    "start_char": 117,
+    "end_char": 123,
+    "start": 6.385,
+    "end": 6.769
+   },
+   {
+    "text": "it.",
+    "start_char": 124,
+    "end_char": 127,
+    "start": 6.803,
+    "end": 7.047
+   },
+   {
+    "text": "It",
+    "start_char": 128,
+    "end_char": 130,
+    "start": 7.291,
+    "end": 7.43
+   },
+   {
+    "text": "checks",
+    "start_char": 131,
+    "end_char": 137,
+    "start": 7.477,
+    "end": 7.744
+   },
+   {
+    "text": "every",
+    "start_char": 138,
+    "end_char": 143,
+    "start": 7.86,
+    "end": 8.15
+   },
+   {
+    "text": "file",
+    "start_char": 144,
+    "end_char": 148,
+    "start": 8.22,
+    "end": 8.58
+   },
+   {
+    "text": "and",
+    "start_char": 149,
+    "end_char": 152,
+    "start": 8.615,
+    "end": 8.696
+   },
+   {
+    "text": "line",
+    "start_char": 153,
+    "end_char": 157,
+    "start": 8.777,
+    "end": 9.033
+   },
+   {
+    "text": "range",
+    "start_char": 158,
+    "end_char": 163,
+    "start": 9.091,
+    "end": 9.427
+   },
+   {
+    "text": "Claude",
+    "start_char": 164,
+    "end_char": 170,
+    "start": 9.462,
+    "end": 9.787
+   },
+   {
+    "text": "cited,",
+    "start_char": 171,
+    "end_char": 177,
+    "start": 9.822,
+    "end": 10.391
+   },
+   {
+    "text": "and",
+    "start_char": 178,
+    "end_char": 181,
+    "start": 10.716,
+    "end": 10.867
+   },
+   {
+    "text": "if",
+    "start_char": 182,
+    "end_char": 184,
+    "start": 10.925,
+    "end": 10.983
+   },
+   {
+    "text": "something",
+    "start_char": 185,
+    "end_char": 194,
+    "start": 11.053,
+    "end": 11.378
+   },
+   {
+    "text": "doesn't",
+    "start_char": 195,
+    "end_char": 202,
+    "start": 11.436,
+    "end": 11.68
+   },
+   {
+    "text": "hold",
+    "start_char": 203,
+    "end_char": 207,
+    "start": 11.726,
+    "end": 11.935
+   },
+   {
+    "text": "up,",
+    "start_char": 208,
+    "end_char": 211,
+    "start": 12.005,
+    "end": 12.33
+   },
+   {
+    "text": "the",
+    "start_char": 212,
+    "end_char": 215,
+    "start": 12.504,
+    "end": 12.597
+   },
+   {
+    "text": "problems",
+    "start_char": 216,
+    "end_char": 224,
+    "start": 12.655,
+    "end": 13.061
+   },
+   {
+    "text": "go",
+    "start_char": 225,
+    "end_char": 227,
+    "start": 13.108,
+    "end": 13.201
+   },
+   {
+    "text": "back",
+    "start_char": 228,
+    "end_char": 232,
+    "start": 13.259,
+    "end": 13.398
+   },
+   {
+    "text": "to",
+    "start_char": 233,
+    "end_char": 235,
+    "start": 13.444,
+    "end": 13.491
+   },
+   {
+    "text": "Claude",
+    "start_char": 236,
+    "end_char": 242,
+    "start": 13.549,
+    "end": 13.874
+   },
+   {
+    "text": "to",
+    "start_char": 243,
+    "end_char": 245,
+    "start": 13.909,
+    "end": 13.99
+   },
+   {
+    "text": "fix",
+    "start_char": 246,
+    "end_char": 249,
+    "start": 14.106,
+    "end": 14.385
+   },
+   {
+    "text": "and",
+    "start_char": 250,
+    "end_char": 253,
+    "start": 14.466,
+    "end": 14.547
+   },
+   {
+    "text": "submit",
+    "start_char": 254,
+    "end_char": 260,
+    "start": 14.594,
+    "end": 14.907
+   },
+   {
+    "text": "again.",
+    "start_char": 261,
+    "end_char": 267,
+    "start": 14.942,
+    "end": 15.883
+   }
+  ]
+ },
+ "s5": {
+  "hash": "9d548b3a2ac6965715ea58959e34bd35",
+  "text": "Here's the rule that keeps a lesson honest. Claude never writes the code you see; it only says which file and which lines. The server copies those exact lines out of the repository, so what's on screen is always what's really there.",
+  "url": "/demo-audio/9d548b3a2ac6965715ea58959e34bd35.mp3",
+  "duration": 15.14,
+  "words": [
+   {
+    "text": "Here's",
+    "start_char": 0,
+    "end_char": 6,
+    "start": 0.0,
+    "end": 0.348
+   },
+   {
+    "text": "the",
+    "start_char": 7,
+    "end_char": 10,
+    "start": 0.383,
+    "end": 0.453
+   },
+   {
+    "text": "rule",
+    "start_char": 11,
+    "end_char": 15,
+    "start": 0.522,
+    "end": 0.731
+   },
+   {
+    "text": "that",
+    "start_char": 16,
+    "end_char": 20,
+    "start": 0.755,
+    "end": 0.871
+   },
+   {
+    "text": "keeps",
+    "start_char": 21,
+    "end_char": 26,
+    "start": 0.917,
+    "end": 1.161
+   },
+   {
+    "text": "a",
+    "start_char": 27,
+    "end_char": 28,
+    "start": 1.207,
+    "end": 1.231
+   },
+   {
+    "text": "lesson",
+    "start_char": 29,
+    "end_char": 35,
+    "start": 1.3,
+    "end": 1.614
+   },
+   {
+    "text": "honest.",
+    "start_char": 36,
+    "end_char": 43,
+    "start": 1.695,
+    "end": 2.276
+   },
+   {
+    "text": "Claude",
+    "start_char": 44,
+    "end_char": 50,
+    "start": 2.717,
+    "end": 3.019
+   },
+   {
+    "text": "never",
+    "start_char": 51,
+    "end_char": 56,
+    "start": 3.053,
+    "end": 3.239
+   },
+   {
+    "text": "writes",
+    "start_char": 57,
+    "end_char": 63,
+    "start": 3.274,
+    "end": 3.506
+   },
+   {
+    "text": "the",
+    "start_char": 64,
+    "end_char": 67,
+    "start": 3.553,
+    "end": 3.622
+   },
+   {
+    "text": "code",
+    "start_char": 68,
+    "end_char": 72,
+    "start": 3.669,
+    "end": 3.878
+   },
+   {
+    "text": "you",
+    "start_char": 73,
+    "end_char": 76,
+    "start": 3.913,
+    "end": 3.994
+   },
+   {
+    "text": "see;",
+    "start_char": 77,
+    "end_char": 81,
+    "start": 4.063,
+    "end": 4.435
+   },
+   {
+    "text": "it",
+    "start_char": 82,
+    "end_char": 84,
+    "start": 4.76,
+    "end": 4.876
+   },
+   {
+    "text": "only",
+    "start_char": 85,
+    "end_char": 89,
+    "start": 4.934,
+    "end": 5.132
+   },
+   {
+    "text": "says",
+    "start_char": 90,
+    "end_char": 94,
+    "start": 5.19,
+    "end": 5.41
+   },
+   {
+    "text": "which",
+    "start_char": 95,
+    "end_char": 100,
+    "start": 5.526,
+    "end": 5.747
+   },
+   {
+    "text": "file",
+    "start_char": 101,
+    "end_char": 105,
+    "start": 5.805,
+    "end": 6.188
+   },
+   {
+    "text": "and",
+    "start_char": 106,
+    "end_char": 109,
+    "start": 6.235,
+    "end": 6.362
+   },
+   {
+    "text": "which",
+    "start_char": 110,
+    "end_char": 115,
+    "start": 6.42,
+    "end": 6.618
+   },
+   {
+    "text": "lines.",
+    "start_char": 116,
+    "end_char": 122,
+    "start": 6.699,
+    "end": 7.268
+   },
+   {
+    "text": "The",
+    "start_char": 123,
+    "end_char": 126,
+    "start": 7.651,
+    "end": 7.779
+   },
+   {
+    "text": "server",
+    "start_char": 127,
+    "end_char": 133,
+    "start": 7.848,
+    "end": 8.173
+   },
+   {
+    "text": "copies",
+    "start_char": 134,
+    "end_char": 140,
+    "start": 8.243,
+    "end": 8.673
+   },
+   {
+    "text": "those",
+    "start_char": 141,
+    "end_char": 146,
+    "start": 8.719,
+    "end": 8.905
+   },
+   {
+    "text": "exact",
+    "start_char": 147,
+    "end_char": 152,
+    "start": 8.951,
+    "end": 9.416
+   },
+   {
+    "text": "lines",
+    "start_char": 153,
+    "end_char": 158,
+    "start": 9.485,
+    "end": 9.88
+   },
+   {
+    "text": "out",
+    "start_char": 159,
+    "end_char": 162,
+    "start": 9.95,
+    "end": 10.124
+   },
+   {
+    "text": "of",
+    "start_char": 163,
+    "end_char": 165,
+    "start": 10.159,
+    "end": 10.205
+   },
+   {
+    "text": "the",
+    "start_char": 166,
+    "end_char": 169,
+    "start": 10.24,
+    "end": 10.31
+   },
+   {
+    "text": "repository,",
+    "start_char": 170,
+    "end_char": 181,
+    "start": 10.391,
+    "end": 11.331
+   },
+   {
+    "text": "so",
+    "start_char": 182,
+    "end_char": 184,
+    "start": 11.656,
+    "end": 11.796
+   },
+   {
+    "text": "what's",
+    "start_char": 185,
+    "end_char": 191,
+    "start": 11.866,
+    "end": 12.086
+   },
+   {
+    "text": "on",
+    "start_char": 192,
+    "end_char": 194,
+    "start": 12.133,
+    "end": 12.226
+   },
+   {
+    "text": "screen",
+    "start_char": 195,
+    "end_char": 201,
+    "start": 12.307,
+    "end": 12.783
+   },
+   {
+    "text": "is",
+    "start_char": 202,
+    "end_char": 204,
+    "start": 12.899,
+    "end": 13.073
+   },
+   {
+    "text": "always",
+    "start_char": 205,
+    "end_char": 211,
+    "start": 13.166,
+    "end": 13.63
+   },
+   {
+    "text": "what's",
+    "start_char": 212,
+    "end_char": 218,
+    "start": 13.7,
+    "end": 13.921
+   },
+   {
+    "text": "really",
+    "start_char": 219,
+    "end_char": 225,
+    "start": 14.037,
+    "end": 14.292
+   },
+   {
+    "text": "there.",
+    "start_char": 226,
+    "end_char": 232,
+    "start": 14.339,
+    "end": 15.14
+   }
+  ]
+ },
+ "s6": {
+  "hash": "79f0c7246e4510f5552333b4990bdf4a",
+  "text": "When ElevenLabs reads a scene aloud, it also returns when each character is spoken. This function groups those characters into words, which is how the captions and the highlighted lines keep pace with the voice.",
+  "url": "/demo-audio/79f0c7246e4510f5552333b4990bdf4a.mp3",
+  "duration": 12.307,
+  "words": [
+   {
+    "text": "When",
+    "start_char": 0,
+    "end_char": 4,
+    "start": 0.0,
+    "end": 0.197
+   },
+   {
+    "text": "ElevenLabs",
+    "start_char": 5,
+    "end_char": 15,
+    "start": 0.244,
+    "end": 0.894
+   },
+   {
+    "text": "reads",
+    "start_char": 16,
+    "end_char": 21,
+    "start": 0.964,
+    "end": 1.138
+   },
+   {
+    "text": "a",
+    "start_char": 22,
+    "end_char": 23,
+    "start": 1.173,
+    "end": 1.207
+   },
+   {
+    "text": "scene",
+    "start_char": 24,
+    "end_char": 29,
+    "start": 1.254,
+    "end": 1.451
+   },
+   {
+    "text": "aloud,",
+    "start_char": 30,
+    "end_char": 36,
+    "start": 1.486,
+    "end": 2.02
+   },
+   {
+    "text": "it",
+    "start_char": 37,
+    "end_char": 39,
+    "start": 2.229,
+    "end": 2.357
+   },
+   {
+    "text": "also",
+    "start_char": 40,
+    "end_char": 44,
+    "start": 2.403,
+    "end": 2.635
+   },
+   {
+    "text": "returns",
+    "start_char": 45,
+    "end_char": 52,
+    "start": 2.728,
+    "end": 3.204
+   },
+   {
+    "text": "when",
+    "start_char": 53,
+    "end_char": 57,
+    "start": 3.262,
+    "end": 3.402
+   },
+   {
+    "text": "each",
+    "start_char": 58,
+    "end_char": 62,
+    "start": 3.425,
+    "end": 3.564
+   },
+   {
+    "text": "character",
+    "start_char": 63,
+    "end_char": 72,
+    "start": 3.599,
+    "end": 3.936
+   },
+   {
+    "text": "is",
+    "start_char": 73,
+    "end_char": 75,
+    "start": 3.994,
+    "end": 4.04
+   },
+   {
+    "text": "spoken.",
+    "start_char": 76,
+    "end_char": 83,
+    "start": 4.075,
+    "end": 4.609
+   },
+   {
+    "text": "This",
+    "start_char": 84,
+    "end_char": 88,
+    "start": 5.306,
+    "end": 5.503
+   },
+   {
+    "text": "function",
+    "start_char": 89,
+    "end_char": 97,
+    "start": 5.561,
+    "end": 5.944
+   },
+   {
+    "text": "groups",
+    "start_char": 98,
+    "end_char": 104,
+    "start": 6.002,
+    "end": 6.293
+   },
+   {
+    "text": "those",
+    "start_char": 105,
+    "end_char": 110,
+    "start": 6.327,
+    "end": 6.513
+   },
+   {
+    "text": "characters",
+    "start_char": 111,
+    "end_char": 121,
+    "start": 6.548,
+    "end": 6.978
+   },
+   {
+    "text": "into",
+    "start_char": 122,
+    "end_char": 126,
+    "start": 7.024,
+    "end": 7.175
+   },
+   {
+    "text": "words,",
+    "start_char": 127,
+    "end_char": 133,
+    "start": 7.245,
+    "end": 7.837
+   },
+   {
+    "text": "which",
+    "start_char": 134,
+    "end_char": 139,
+    "start": 8.046,
+    "end": 8.231
+   },
+   {
+    "text": "is",
+    "start_char": 140,
+    "end_char": 142,
+    "start": 8.278,
+    "end": 8.348
+   },
+   {
+    "text": "how",
+    "start_char": 143,
+    "end_char": 146,
+    "start": 8.406,
+    "end": 8.58
+   },
+   {
+    "text": "the",
+    "start_char": 147,
+    "end_char": 150,
+    "start": 8.649,
+    "end": 8.719
+   },
+   {
+    "text": "captions",
+    "start_char": 151,
+    "end_char": 159,
+    "start": 8.777,
+    "end": 9.358
+   },
+   {
+    "text": "and",
+    "start_char": 160,
+    "end_char": 163,
+    "start": 9.404,
+    "end": 9.474
+   },
+   {
+    "text": "the",
+    "start_char": 164,
+    "end_char": 167,
+    "start": 9.509,
+    "end": 9.578
+   },
+   {
+    "text": "highlighted",
+    "start_char": 168,
+    "end_char": 179,
+    "start": 9.625,
+    "end": 10.054
+   },
+   {
+    "text": "lines",
+    "start_char": 180,
+    "end_char": 185,
+    "start": 10.101,
+    "end": 10.437
+   },
+   {
+    "text": "keep",
+    "start_char": 186,
+    "end_char": 190,
+    "start": 10.553,
+    "end": 10.786
+   },
+   {
+    "text": "pace",
+    "start_char": 191,
+    "end_char": 195,
+    "start": 10.855,
+    "end": 11.122
+   },
+   {
+    "text": "with",
+    "start_char": 196,
+    "end_char": 200,
+    "start": 11.157,
+    "end": 11.285
+   },
+   {
+    "text": "the",
+    "start_char": 201,
+    "end_char": 204,
+    "start": 11.32,
+    "end": 11.389
+   },
+   {
+    "text": "voice.",
+    "start_char": 205,
+    "end_char": 211,
+    "start": 11.424,
+    "end": 12.307
+   }
+  ]
+ },
+ "s7": {
+  "hash": "822842e9232bc799cfd57fc5dd6da27f",
+  "text": "So, three things. Each lesson is tied to one exact commit. Claude cites the code and the server copies it, so nothing on screen is invented. And word timings from the voice keep everything in step.",
+  "url": "/demo-audio/822842e9232bc799cfd57fc5dd6da27f.mp3",
+  "duration": 12.353,
+  "words": [
+   {
+    "text": "So,",
+    "start_char": 0,
+    "end_char": 3,
+    "start": 0.0,
+    "end": 0.221
+   },
+   {
+    "text": "three",
+    "start_char": 4,
+    "end_char": 9,
+    "start": 0.244,
+    "end": 0.488
+   },
+   {
+    "text": "things.",
+    "start_char": 10,
+    "end_char": 17,
+    "start": 0.534,
+    "end": 1.033
+   },
+   {
+    "text": "Each",
+    "start_char": 18,
+    "end_char": 22,
+    "start": 1.207,
+    "end": 1.428
+   },
+   {
+    "text": "lesson",
+    "start_char": 23,
+    "end_char": 29,
+    "start": 1.521,
+    "end": 1.846
+   },
+   {
+    "text": "is",
+    "start_char": 30,
+    "end_char": 32,
+    "start": 1.904,
+    "end": 1.974
+   },
+   {
+    "text": "tied",
+    "start_char": 33,
+    "end_char": 37,
+    "start": 2.032,
+    "end": 2.252
+   },
+   {
+    "text": "to",
+    "start_char": 38,
+    "end_char": 40,
+    "start": 2.276,
+    "end": 2.322
+   },
+   {
+    "text": "one",
+    "start_char": 41,
+    "end_char": 44,
+    "start": 2.438,
+    "end": 2.74
+   },
+   {
+    "text": "exact",
+    "start_char": 45,
+    "end_char": 50,
+    "start": 2.798,
+    "end": 3.135
+   },
+   {
+    "text": "commit.",
+    "start_char": 51,
+    "end_char": 58,
+    "start": 3.181,
+    "end": 3.634
+   },
+   {
+    "text": "Claude",
+    "start_char": 59,
+    "end_char": 65,
+    "start": 4.331,
+    "end": 4.714
+   },
+   {
+    "text": "cites",
+    "start_char": 66,
+    "end_char": 71,
+    "start": 4.748,
+    "end": 5.062
+   },
+   {
+    "text": "the",
+    "start_char": 72,
+    "end_char": 75,
+    "start": 5.12,
+    "end": 5.201
+   },
+   {
+    "text": "code",
+    "start_char": 76,
+    "end_char": 80,
+    "start": 5.259,
+    "end": 5.619
+   },
+   {
+    "text": "and",
+    "start_char": 81,
+    "end_char": 84,
+    "start": 5.666,
+    "end": 5.805
+   },
+   {
+    "text": "the",
+    "start_char": 85,
+    "end_char": 88,
+    "start": 5.851,
+    "end": 5.921
+   },
+   {
+    "text": "server",
+    "start_char": 89,
+    "end_char": 95,
+    "start": 5.991,
+    "end": 6.316
+   },
+   {
+    "text": "copies",
+    "start_char": 96,
+    "end_char": 102,
+    "start": 6.385,
+    "end": 6.792
+   },
+   {
+    "text": "it,",
+    "start_char": 103,
+    "end_char": 106,
+    "start": 6.85,
+    "end": 7.059
+   },
+   {
+    "text": "so",
+    "start_char": 107,
+    "end_char": 109,
+    "start": 7.233,
+    "end": 7.384
+   },
+   {
+    "text": "nothing",
+    "start_char": 110,
+    "end_char": 117,
+    "start": 7.5,
+    "end": 7.802
+   },
+   {
+    "text": "on",
+    "start_char": 118,
+    "end_char": 120,
+    "start": 7.86,
+    "end": 7.93
+   },
+   {
+    "text": "screen",
+    "start_char": 121,
+    "end_char": 127,
+    "start": 7.988,
+    "end": 8.255
+   },
+   {
+    "text": "is",
+    "start_char": 128,
+    "end_char": 130,
+    "start": 8.301,
+    "end": 8.371
+   },
+   {
+    "text": "invented.",
+    "start_char": 131,
+    "end_char": 140,
+    "start": 8.417,
+    "end": 8.998
+   },
+   {
+    "text": "And",
+    "start_char": 141,
+    "end_char": 144,
+    "start": 9.323,
+    "end": 9.485
+   },
+   {
+    "text": "word",
+    "start_char": 145,
+    "end_char": 149,
+    "start": 9.555,
+    "end": 9.787
+   },
+   {
+    "text": "timings",
+    "start_char": 150,
+    "end_char": 157,
+    "start": 9.822,
+    "end": 10.194
+   },
+   {
+    "text": "from",
+    "start_char": 158,
+    "end_char": 162,
+    "start": 10.228,
+    "end": 10.368
+   },
+   {
+    "text": "the",
+    "start_char": 163,
+    "end_char": 166,
+    "start": 10.414,
+    "end": 10.484
+   },
+   {
+    "text": "voice",
+    "start_char": 167,
+    "end_char": 172,
+    "start": 10.519,
+    "end": 10.844
+   },
+   {
+    "text": "keep",
+    "start_char": 173,
+    "end_char": 177,
+    "start": 10.902,
+    "end": 11.134
+   },
+   {
+    "text": "everything",
+    "start_char": 178,
+    "end_char": 188,
+    "start": 11.204,
+    "end": 11.517
+   },
+   {
+    "text": "in",
+    "start_char": 189,
+    "end_char": 191,
+    "start": 11.564,
+    "end": 11.622
+   },
+   {
+    "text": "step.",
+    "start_char": 192,
+    "end_char": 197,
+    "start": 11.691,
+    "end": 12.353
+   }
+  ]
+ }
+}

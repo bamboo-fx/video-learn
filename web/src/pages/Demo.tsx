@@ -6,19 +6,26 @@ import { useState } from "react"
 import { Editor } from "@/components/editor/Editor"
 import type { EditorHost } from "@/components/editor/types"
 import { Button } from "@/components/ui/button"
-import type { Storyboard } from "@/lib/api"
+import type { Storyboard, Voice } from "@/lib/api"
 import { navigate } from "@/lib/router"
-import example from "../../../shared/example-storyboard.json"
+import demo from "../../../shared/demo-lesson.json"
+import demoVoices from "../../../shared/demo-voices.json"
 
 export function Demo() {
-  const [board, setBoard] = useState<Storyboard>(example as Storyboard)
+  const [board, setBoard] = useState<Storyboard>(demo.storyboard as Storyboard)
+  const voices = demoVoices as Record<string, Voice>
 
   const host: EditorHost = {
     board,
-    voices: {},
+    voices,
     editable: true,
     setBoard,
-    voiceState: () => ({ kind: "stale" }),
+    voiceState: (id) => {
+      const scene = board.scenes.find((s) => s.id === id)
+      return scene && voices[id]?.text === scene.narration ? { kind: "voiced" } : { kind: "stale" }
+    },
+    repo: { name: demo.repo, sha: demo.sha },
+    sourcesLocked: true,
     aiEdit: null,
     aiUnavailable: "AI edits are off in the example. Make your own lesson to ask for changes.",
   }
@@ -29,7 +36,7 @@ export function Demo() {
       banner={
         <div className="flex items-center gap-3 border-b border-border bg-ember-soft/50 px-4 py-2 text-xs">
           <span className="min-w-0 flex-1 text-muted-foreground">
-            <span className="font-medium text-foreground">An example lesson.</span> It plays without a voice, with captions. Changes here aren't saved.
+            <span className="font-medium text-foreground">An example lesson</span> about this app's own code. Changes here aren't saved.
           </span>
           <Button size="xs" onClick={() => navigate("/")}>
             Make your own <ArrowRight />

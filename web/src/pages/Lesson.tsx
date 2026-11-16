@@ -69,26 +69,62 @@ function Writing({ project }: { project: Project }) {
     const t = setInterval(() => setStep((s) => Math.min(STEPS.length - 1, s + 1)), 7000)
     return () => clearInterval(t)
   }, [])
+  const live = project.progress ?? []
   return (
     <Shell>
-      <div className="mx-auto max-w-md py-24" role="status" aria-label="Writing the lesson">
-        <p className="mb-2 text-xs text-muted-foreground">Claude is writing</p>
+      <div className="mx-auto max-w-lg py-20" role="status" aria-label="Writing the lesson">
+        <p className="mb-2 text-xs text-muted-foreground">
+          {project.repo ? (
+            <>
+              Claude is reading <span className="font-mono text-foreground">{project.repo}</span>
+            </>
+          ) : (
+            "Claude is writing"
+          )}
+        </p>
         <h1 className="font-serif text-4xl leading-tight text-balance">{project.topic}</h1>
-        <ol className="mt-10 flex flex-col gap-3 text-sm">
-          {STEPS.map((s, i) => (
-            <li key={s} className="flex items-center gap-3">
-              {i < step ? (
-                <Check className="size-4 text-ok" aria-hidden />
-              ) : i === step ? (
-                <Loader2 className="size-4 animate-spin text-ember motion-reduce:animate-none" aria-hidden />
-              ) : (
-                <span className="size-4 rounded-full border border-border" aria-hidden />
-              )}
-              <span className={i <= step ? "text-foreground" : "text-muted-foreground"}>{s}</span>
-            </li>
-          ))}
-        </ol>
-        <p className="mt-10 text-xs text-muted-foreground">This usually takes under a minute. You can leave this page; the lesson keeps writing.</p>
+        {project.repo ? (
+          <ol className="mt-10 flex flex-col gap-2.5 font-mono text-[13px]" aria-live="polite">
+            {live.length === 0 ? (
+              <li className="flex items-center gap-3 text-muted-foreground">
+                <Loader2 className="size-4 animate-spin text-ember motion-reduce:animate-none" aria-hidden /> Starting…
+              </li>
+            ) : (
+              live.map((line, i) => {
+                const last = i === live.length - 1
+                return (
+                  <li key={`${i}-${line}`} className="flex items-center gap-3 animate-in duration-300 fade-in">
+                    {last ? (
+                      <Loader2 className="size-4 shrink-0 animate-spin text-ember motion-reduce:animate-none" aria-hidden />
+                    ) : (
+                      <Check className="size-4 shrink-0 text-ok" aria-hidden />
+                    )}
+                    <span className={last ? "truncate text-foreground" : "truncate text-muted-foreground"}>{line}</span>
+                  </li>
+                )
+              })
+            )}
+          </ol>
+        ) : (
+          <ol className="mt-10 flex flex-col gap-3 text-sm">
+            {STEPS.map((s, i) => (
+              <li key={s} className="flex items-center gap-3">
+                {i < step ? (
+                  <Check className="size-4 text-ok" aria-hidden />
+                ) : i === step ? (
+                  <Loader2 className="size-4 animate-spin text-ember motion-reduce:animate-none" aria-hidden />
+                ) : (
+                  <span className="size-4 rounded-full border border-border" aria-hidden />
+                )}
+                <span className={i <= step ? "text-foreground" : "text-muted-foreground"}>{s}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+        <p className="mt-10 text-xs text-muted-foreground">
+          {project.repo ? "Reading the code takes a minute or two." : "This usually takes under a minute."} You can leave this page; the lesson keeps
+          going.
+        </p>
       </div>
     </Shell>
   )
@@ -318,6 +354,7 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
     locked: aiBusy ? "Claude is editing the lesson. Hand edits are paused until it's done, so nothing you type gets overwritten." : undefined,
     aiUnavailable: aiReady ? undefined : "AI edits aren't set up on this server yet. You can still edit every scene by hand.",
     shareUrl: `${window.location.origin}/l/${project.id}`,
+    repo: project.repo && project.repo_sha ? { name: project.repo, sha: project.repo_sha } : undefined,
   }
 
   return (

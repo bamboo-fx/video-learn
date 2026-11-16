@@ -1,4 +1,4 @@
-import type { EditResult, Storyboard, Voice } from "@/lib/api"
+import type { EditResult, RepoRef, Storyboard, Voice } from "@/lib/api"
 
 /** Where a scene's narration stands with ElevenLabs. */
 export type VoiceState =
@@ -23,6 +23,10 @@ export interface EditorHost {
   aiEdit: ((instruction: string, sceneId: string | null) => Promise<EditResult>) | null
   aiUnavailable?: string
   shareUrl?: string
+  /** the repository the lesson teaches, for source links */
+  repo?: RepoRef
+  /** sources can't be changed here (the example has no server to re-read the code) */
+  sourcesLocked?: boolean
   /** a reason hand editing is paused right now (an AI edit is running), or undefined */
   locked?: string
 }
