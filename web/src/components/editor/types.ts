@@ -27,4 +27,6 @@ export interface EditorHost {
   repo?: RepoRef
   /** sources can't be changed here (the example has no server to re-read the code) */
   sourcesLocked?: boolean
+  /** a reason hand editing is paused right now (an AI edit is running), or undefined */
+  locked?: string
 }

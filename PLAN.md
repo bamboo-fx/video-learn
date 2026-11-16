@@ -1,8 +1,8 @@
 # Build plan
 
-One GitHub issue per slice, one branch and one pull request per issue. Slices in the same
-lane can run at the same time in separate sessions once the storyboard schema (slice 2) is
-merged, because everything else is built against it.
+One GitHub issue per slice, one branch and one pull request per issue. The backend and
+frontend lanes can run at the same time in separate sessions once the storyboard schema
+(slice 2) is merged. Within each lane, complete dependent slices in order.
 
 The course requirements each slice meets are numbered as in the project brief:
 1 for someone, 2 frontend, 3 database, 4 deployed, 5 calls an LLM, 6 new API, 7 built with AI.

@@ -13,6 +13,22 @@ export const LAYOUT_LABELS: Record<Layout, string> = {
   summary: "Summary",
 }
 
+/** The server's limit (MAX_SCENES in backend/app/storyboard.py). */
+export const MAX_SCENES = 12
+
+/** How many items each layout actually draws. */
+export const MAX_ITEMS: Record<Layout, number> = {
+  title: 0,
+  points: 5,
+  steps: 5,
+  compare: 2,
+  definition: 1,
+  example: 5,
+  code: 5,
+  flow: 5,
+  summary: 5,
+}
+
 export function nextId(board: Storyboard): string {
   const nums = board.scenes.map((s) => Number(s.id.replace(/^s/, ""))).filter(Number.isFinite)
   return `s${Math.max(0, ...nums) + 1}`
@@ -23,6 +39,7 @@ export function updateScene(board: Storyboard, id: string, patch: Partial<Scene>
 }
 
 export function insertScene(board: Storyboard, afterId: string | null): { board: Storyboard; id: string } {
+  if (board.scenes.length >= MAX_SCENES) return { board, id: afterId ?? board.scenes[0]?.id ?? "" }
   const id = nextId(board)
   const scene: Scene = {
     id,
@@ -42,7 +59,7 @@ export function insertScene(board: Storyboard, afterId: string | null): { board:
 
 export function duplicateScene(board: Storyboard, id: string): { board: Storyboard; id: string } {
   const i = board.scenes.findIndex((s) => s.id === id)
-  if (i < 0) return { board, id }
+  if (i < 0 || board.scenes.length >= MAX_SCENES) return { board, id }
   const copy = { ...structuredClone(board.scenes[i]), id: nextId(board) }
   const scenes = [...board.scenes]
   scenes.splice(i + 1, 0, copy)

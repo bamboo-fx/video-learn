@@ -40,8 +40,8 @@ def tarball(files: dict[str, bytes], sha="0123456789abcdef0123456789abcdef012345
 @pytest.mark.parametrize("text,expected", [
     ("https://github.com/octo/tiny", ("octo", "tiny", None)),
     ("github.com/octo/tiny.git", ("octo", "tiny", None)),
-    ("https://github.com/octo/tiny/tree/dev/src", ("octo", "tiny", "dev")),
-    ("https://github.com/octo/tiny/blob/main/app.py#L3", ("octo", "tiny", "main")),
+    ("https://github.com/octo/tiny/tree/dev/src", ("octo", "tiny", "dev/src")),
+    ("https://github.com/octo/tiny/blob/main/app.py#L3", ("octo", "tiny", "main/app.py")),
     ("octo/tiny", ("octo", "tiny", None)),
 ])
 def test_parse_repo(text, expected):
@@ -389,3 +389,75 @@ def test_archive_caps(monkeypatch):
     with pytest.raises(github.RepoError) as e:
         github.download("octo", "tiny")
     assert e.value.code == "repo_too_big"
+
+
+
+def test_branch_names_with_slashes_are_resolved(monkeypatch):
+    branches = {"feature/login": "a" * 40, "main": "b" * 40}
+    monkeypatch.setattr(github, "head_sha", lambda o, r, ref: branches.get(ref))
+    assert github.resolve_ref("o", "r", "feature/login/src/app.py") == "feature/login"
+    assert github.resolve_ref("o", "r", "main/app.py") == "main"
+    assert github.resolve_ref("o", "r", "dev") == "dev"
+    with pytest.raises(github.RepoError):
+        github.resolve_ref("o", "r", "nope/also/nope")
+
+
+def test_a_failed_rewrite_keeps_the_old_commit(client, monkeypatch):
+    owner = {"X-Owner": "rewrite-owner-0123456789ab"}
+    first = github.Snapshot("octo", "tiny", "1" * 40, "main", "", dict(FILES))
+    monkeypatch.setattr(github, "head_sha", lambda *a: None)
+    monkeypatch.setattr(github, "download", lambda o, r, ref=None: first)
+    monkeypatch.setattr(llm, "write_repo_lesson", lambda s, q, lvl, m, progress: (grounding.ground(repo_board(), s), [llm.Call("c", 1, 1, 1)]))
+    p = client.post("/api/projects", json={"topic": "Rewrite", "repo": "octo/tiny"}, headers=owner).json()
+    assert client.post(f"/api/projects/{p['id']}/write", headers=owner).json()["repo_sha"] == "1" * 40
+
+    second = github.Snapshot("octo", "tiny", "2" * 40, "main", "", {**FILES, "greet.py": "x = 1\n"})
+    monkeypatch.setattr(github, "download", lambda o, r, ref=None: second)
+
+    def fails(*a, **k):
+        raise llm.AIError("ai_busy", "Busy.", 429)
+
+    monkeypatch.setattr(llm, "write_repo_lesson", fails)
+    from sqlmodel import Session
+
+    from app.db import engine
+    from app.models import Project
+
+    with Session(engine) as s:  # let it be rewritten
+        row = s.get(Project, p["id"])
+        row.status = "failed"
+        s.add(row)
+        s.commit()
+    assert client.post(f"/api/projects/{p['id']}/write", headers=owner).status_code == 429
+    after = client.get(f"/api/projects/{p['id']}", headers=owner).json()
+    assert after["repo_sha"] == "1" * 40  # still the commit its storyboard was written from
+
+
+def test_late_source_files_displace_early_docs(monkeypatch):
+    files = {f"docs/page{i}.md": b"d" * 400 for i in range(5)}
+    files["src/main.py"] = b"print('the real code')\n"
+    data = tarball(files)
+
+    class FakeStream:
+        status_code = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def iter_bytes(self):
+            yield data
+
+    monkeypatch.setattr(github, "repo_info", lambda o, r: {})
+    monkeypatch.setattr(github.httpx, "stream", lambda *a, **k: FakeStream())
+    monkeypatch.setattr(github, "MAX_CANDIDATES", 1300)  # room for about three docs
+    snap = github.download("octo", "tiny")
+    assert "src/main.py" in snap.files and snap.truncated
+
+
+def test_topic_lessons_are_told_to_write_their_code():
+    from app.storyboard import LAYOUTS
+
+    assert "Otherwise write the code" in LAYOUTS["code"]

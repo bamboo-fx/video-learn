@@ -85,3 +85,20 @@ def test_unexpected_errors_still_use_the_envelope(monkeypatch):
     with TestClient(main.app, raise_server_exceptions=False) as c:
         r = c.get("/api/__boom")
     assert r.status_code == 500 and r.json()["error"]["code"] == "server_error"
+
+
+def test_a_blank_topic_is_rejected(client, owner):
+    r = client.post("/api/projects", json={"topic": "   "}, headers=owner)
+    assert r.status_code == 422 and "topic" in r.json()["error"]["message"]
+
+
+def test_routing_errors_use_the_envelope(client):
+    r = client.request("OPTIONS", "/api/projects")
+    assert r.status_code == 405 and r.json()["error"]["code"] == "http_error"
+
+
+def test_times_carry_a_utc_offset(client, owner):
+    p = client.post("/api/projects", json={"topic": "Clock"}, headers=owner).json()
+    assert p["created_at"].endswith("+00:00")
+    listed = client.get("/api/projects", headers=owner).json()["projects"][0]
+    assert listed["updated_at"].endswith("+00:00")

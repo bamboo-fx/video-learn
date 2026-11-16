@@ -303,3 +303,92 @@ def test_cost_counts_cached_tokens():
     cost = llm.cost_usd("claude-opus-5-5", 10, 4000, 20000, 60000)
     assert cost == round((10 * 4 + 20000 * 5 + 60000 * 0.4 + 4000 * 20) / 1_000_000, 4)
     assert llm.cost_usd("some-other-model", 1, 1, 0, 0) is None
+
+# ---------------------------------------------------------------- Greptile review fixes
+
+
+def test_a_reservation_counts_before_the_call_finishes(client, monkeypatch):
+    from sqlmodel import Session
+
+    from app import limits
+    from app.db import engine
+
+    monkeypatch.setenv("LIMIT_WRITES_PER_BROWSER", "1")
+    with Session(engine) as s:
+        limits.reserve(s, "reserve-owner-0123456789ab", "p1", "write", "anthropic", "m")  # still running
+        with pytest.raises(limits.LimitError):
+            limits.reserve(s, "reserve-owner-0123456789ab", "p2", "write", "anthropic", "m")
+
+
+def test_a_free_failure_gives_its_reservation_back(client, monkeypatch):
+    from sqlmodel import Session
+
+    from app import limits
+    from app.db import engine
+
+    monkeypatch.setenv("LIMIT_EDITS_PER_BROWSER", "1")
+    with Session(engine) as s:
+        rid = limits.reserve(s, "refund-owner-0123456789ab", "p", "edit", "anthropic", "m")
+        limits.settle(s, rid, ok=False, error="ai_unreachable")
+        limits.reserve(s, "refund-owner-0123456789ab", "p", "edit", "anthropic", "m")  # room again
+
+
+def test_the_site_has_an_edit_ceiling(client, monkeypatch):
+    from sqlmodel import Session
+
+    from app import limits
+    from app.db import engine
+
+    monkeypatch.setenv("LIMIT_EDITS_PER_DAY", "0")
+    with Session(engine) as s, pytest.raises(limits.LimitError, match="site"):
+        limits.reserve(s, "ceiling-owner-0123456789a", "p", "edit", "anthropic", "m")
+
+
+def test_the_same_narration_is_paid_for_once_when_asked_twice_at_once(client, example, monkeypatch):
+    import threading
+
+    owner = {"X-Owner": "twice-owner-0123456789abcd"}
+    import time
+
+    example["scenes"][4]["narration"] = "Asked for twice at the same moment."
+    p = make_written(client, owner, example, monkeypatch, topic="Twice")
+    calls = []
+
+    def slow_speak(*a, **k):
+        calls.append(1)
+        time.sleep(0.3)
+        return fake_speak(*a, **k)
+
+    monkeypatch.setattr(tts, "speak", slow_speak)
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(client.post(f"/api/projects/{p['id']}/scenes/s5/voice", headers=owner).status_code)) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert results == [200, 200] and len(calls) == 1
+
+
+def test_hand_saves_wait_while_a_lesson_is_being_written(client, owner, example):
+    from sqlmodel import Session
+
+    from app.db import engine
+    from app.models import Project
+
+    p = client.post("/api/projects", json={"topic": "Busy"}, headers=owner).json()
+    with Session(engine) as s:
+        row = s.get(Project, p["id"])
+        row.status = "writing"
+        s.add(row)
+        s.commit()
+    r = client.put(f"/api/projects/{p['id']}/storyboard", json={"storyboard": example}, headers=owner)
+    assert r.status_code == 409 and r.json()["error"]["code"] == "being_written"
+
+
+def test_waiting_for_a_voice_holds_no_database_connection(monkeypatch):
+    import inspect
+
+    from app import main
+
+    src = inspect.getsource(main.voice_scene)
+    assert src.index("session.close()") < src.index("with clip_lock(h):")

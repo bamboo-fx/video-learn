@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { githubUrl, type Item, type Layout, type RepoRef, type Scene } from "@/lib/api"
-import { LAYOUT_LABELS } from "@/lib/edit"
+import { LAYOUT_LABELS, MAX_ITEMS, MAX_SCENES } from "@/lib/edit"
 import { sentenceSpans, wordCount } from "@/lib/timing"
 import { cn } from "@/lib/utils"
 
@@ -35,7 +35,9 @@ export function SceneInspector({ scene, repo, sourcesLocked, index, count, voice
   const spans = sentenceSpans(scene.narration)
   const sentenceLabels = spans.map(([a, b], i) => `${i + 1}. ${scene.narration.slice(a, b).split(/\s+/).slice(0, 6).join(" ")}…`)
   const words = wordCount(scene.narration)
-  const hasItems = scene.layout !== "title"
+  const maxItems = MAX_ITEMS[scene.layout] ?? 5
+  const hasItems = maxItems > 0
+  const hidden = scene.items.length - maxItems
 
   const setItem = (i: number, patch: Partial<Item>) => onChange({ items: scene.items.map((it, k) => (k === i ? { ...it, ...patch } : it)) })
 
@@ -52,7 +54,14 @@ export function SceneInspector({ scene, repo, sourcesLocked, index, count, voice
           <Button variant="ghost" size="icon-sm" onClick={() => onMove(1)} disabled={index === count - 1} aria-label="Move scene later">
             <ArrowDown />
           </Button>
-          <Button variant="ghost" size="icon-sm" onClick={onDuplicate} aria-label="Duplicate scene">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onDuplicate}
+            disabled={count >= MAX_SCENES}
+            aria-label={count >= MAX_SCENES ? `Duplicate scene (a lesson has at most ${MAX_SCENES} scenes)` : "Duplicate scene"}
+            title={count >= MAX_SCENES ? `A lesson has at most ${MAX_SCENES} scenes` : undefined}
+          >
             <Copy />
           </Button>
           <Button variant="ghost" size="icon-sm" onClick={onDelete} disabled={count <= 1} aria-label="Delete scene" className="hover:text-destructive">
@@ -178,7 +187,12 @@ export function SceneInspector({ scene, repo, sourcesLocked, index, count, voice
               </div>
             </div>
           ))}
-          {scene.items.length < 5 ? (
+          {hidden > 0 ? (
+            <p className="text-[11px] text-destructive" role="status">
+              This layout shows {maxItems === 1 ? "only the first item" : `only the first ${maxItems} items`}. Remove {hidden === 1 ? "one" : hidden} or pick another layout.
+            </p>
+          ) : null}
+          {scene.items.length < maxItems ? (
             <Button
               variant="outline"
               size="sm"
