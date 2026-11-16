@@ -377,3 +377,12 @@ def test_hand_saves_wait_while_a_lesson_is_being_written(client, owner, example)
         s.commit()
     r = client.put(f"/api/projects/{p['id']}/storyboard", json={"storyboard": example}, headers=owner)
     assert r.status_code == 409 and r.json()["error"]["code"] == "being_written"
+
+
+def test_waiting_for_a_voice_holds_no_database_connection(monkeypatch):
+    import inspect
+
+    from app import main
+
+    src = inspect.getsource(main.voice_scene)
+    assert src.index("session.close()") < src.index("with clip_lock(h):")

@@ -357,9 +357,10 @@ def voice_scene(project_id: str, scene_id: str, session: SessionDep, owner: Owne
     next_text = scenes[i + 1]["narration"] if i + 1 < len(scenes) else ""
 
     # One request per narration pays ElevenLabs; another asking for the same words waits
-    # here and then finds the clip the first one stored.
+    # here and then finds the clip the first one stored. The session is closed before
+    # waiting, so waiters don't hold database connections the paying request needs.
+    session.close()
     with clip_lock(h):
-        session.expire_all()
         if clip := session.get(Clip, h):
             return clip_out(clip)
         try:
