@@ -50,6 +50,17 @@ scenes that changed get re-voiced and the person can still tweak everything by h
   `backend/scripts/build_demo.py` (anchors resolved at a fixed commit) and voiced once by
   `backend/scripts/voice_demo.py` (spends ElevenLabs credits; audio ships in `web/public`).
 
+## The /lesson skill (skill/lesson/)
+
+- The user's own Claude Code researches their code; `lesson.py` (standard library only, no
+  dependencies, ever) chooses readable files (gitignore-aware, never secrets, never outside
+  the repo), fills code scenes from the files, refuses secret-like lines, and uploads to
+  `POST /api/import` only with `--yes`, after the person agrees.
+- The server checks imports again (`secrets_scan.py`, sizes) and runs no AI for them; AI
+  edits are refused for `origin != "web"` lessons. Keep both of those true: they're why the
+  skill costs the site nothing and can't leak code.
+- `backend/tests/test_lesson_skill.py` runs the helper against throwaway git repos.
+
 ## Rules
 
 - **Secrets live only in environment variables.** This repo is PUBLIC. Never commit a
