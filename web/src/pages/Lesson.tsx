@@ -12,8 +12,54 @@ import { navigate } from "@/lib/router"
 
 export const configQuery = { queryKey: ["config"], queryFn: api.config, staleTime: 5 * 60_000, gcTime: 60 * 60_000 }
 
+/** A lesson made by the /lesson skill or the claude.ai connector arrives with a one-time
+ * ?claim= link; opening it makes this browser the owner. The token leaves the address bar at
+ * once so it isn't shared by accident, but stays in this tab until the claim succeeds, so a
+ * claim that fails (say, offline) can be retried. */
+function useClaim(id: string) {
+  const qc = useQueryClient()
+  const started = useRef(false)
+  useEffect(() => {
+    const key = `claim:${id}`
+    const params = new URLSearchParams(window.location.search)
+    const fromUrl = params.get("claim")
+    if (fromUrl) {
+      sessionStorage.setItem(key, fromUrl)
+      params.delete("claim")
+      const rest = params.toString()
+      window.history.replaceState({}, "", `${window.location.pathname}${rest ? `?${rest}` : ""}`)
+    }
+    const token = sessionStorage.getItem(key)
+    if (!token || started.current) return
+    started.current = true
+
+    const attempt = () =>
+      api.claim(id, token).then(
+        async (p) => {
+          sessionStorage.removeItem(key)
+          // a GET that started before the claim mustn't land after it and look read-only
+          await qc.cancelQueries({ queryKey: ["project", id] })
+          qc.setQueryData(["project", id], p)
+          qc.invalidateQueries({ queryKey: ["project", id] })
+          qc.invalidateQueries({ queryKey: ["projects"] })
+          toast.success("This lesson is yours now. It's saved in this browser.")
+        },
+        (e) => {
+          const final = e instanceof ApiError && (e.code === "already_claimed" || e.code === "bad_claim")
+          if (final) sessionStorage.removeItem(key)
+          toast.error(e instanceof ApiError ? e.message : "Couldn't claim this lesson.", {
+            duration: final ? 6000 : Infinity,
+            action: final ? undefined : { label: "Try again", onClick: () => attempt() },
+          })
+        },
+      )
+    attempt()
+  }, [id, qc])
+}
+
 export function Lesson({ id }: { id: string }) {
   const qc = useQueryClient()
+  useClaim(id)
   const key = ["project", id]
   const writingHere = typeof sessionStorage !== "undefined" && sessionStorage.getItem(`writing:${id}`) === "1"
 
@@ -350,9 +396,18 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
             .catch(() => toast.error("Save failed, so nothing was voiced."))
         }
       : undefined,
-    aiEdit: aiReady ? aiEdit : null,
+    // AI edits run on our server only for lessons Claude wrote here; a lesson made by your own
+    // Claude (the skill or the connector) is changed there, at no cost to the site
+    aiEdit: aiReady && project.origin === "web" ? aiEdit : null,
     locked: aiBusy ? "Claude is editing the lesson. Hand edits are paused until it's done, so nothing you type gets overwritten." : undefined,
-    aiUnavailable: aiReady ? undefined : "AI edits aren't set up on this server yet. You can still edit every scene by hand.",
+    aiUnavailable:
+      project.origin === "local"
+        ? "This lesson was made by Claude Code on your computer. To change it with AI, run /lesson again there. You can edit any scene by hand here."
+        : project.origin === "connector"
+          ? "This lesson was made in the Claude app. Ask Claude there for changes. You can edit any scene by hand here."
+          : aiReady
+            ? undefined
+            : "AI edits aren't set up on this server yet. You can still edit every scene by hand.",
     shareUrl: `${window.location.origin}/l/${project.id}`,
     repo: project.repo && project.repo_sha ? { name: project.repo, sha: project.repo_sha } : undefined,
   }

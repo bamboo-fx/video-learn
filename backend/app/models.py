@@ -42,6 +42,12 @@ class Project(SQLModel, table=True):
     repo_sha: str = ""
     # what Claude is doing right now while it writes ("Reading app/main.py"), newest last
     progress: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    # where it was made: "web" (Claude on our server), "local" (the /lesson skill, from code on
+    # the person's computer) or "connector" (Claude in claude.ai, from a public repository)
+    origin: str = "web"
+    # a lesson made outside the browser belongs to nobody until its one-time claim link is
+    # opened; only a hash of the link's token is kept
+    claim_hash: str = ""
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)
 
