@@ -225,7 +225,11 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
               className="mx-2 h-1 min-w-0 flex-1 cursor-pointer accent-[var(--ember)] lg:hidden"
             />
             <div className="ml-auto flex items-center gap-1">
-              {pb.audioError ? <span className="hidden text-xs text-destructive sm:inline">Audio didn't play: {pb.audioError}</span> : null}
+              {pb.audioError ? (
+                <span role="status" className="text-xs text-destructive">
+                  {pb.audioError}
+                </span>
+              ) : null}
               <Button variant="ghost" size="icon-sm" onClick={() => setCc((v) => !v)} aria-pressed={cc} aria-label={cc ? "Hide captions" : "Show captions"}>
                 {cc ? <Captions /> : <CaptionsOff />}
               </Button>
@@ -386,8 +390,8 @@ function SaveBadge({ state, error }: { state: NonNullable<EditorHost["saveState"
   } as const
   const [icon, label, cls] = map[state]
   return (
-    <span className={cn("hidden items-center gap-1.5 text-xs sm:inline-flex [&_svg]:size-3.5", cls)} role="status" title={error}>
-      {icon} {label}
+    <span className={cn("inline-flex items-center gap-1.5 text-xs [&_svg]:size-3.5", cls)} role="status" title={error}>
+      {icon} <span className={state === "error" ? "" : "sr-only sm:not-sr-only"}>{label}</span>
     </span>
   )
 }

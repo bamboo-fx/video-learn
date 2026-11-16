@@ -7,6 +7,10 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import { LEAD, sceneAt, type Timeline } from "./timing"
 
+/** 80 ms of silence. Played once inside the tap that starts playback, because iOS Safari
+ * only lets an audio element play later if it first played during a user gesture. */
+const SILENCE = "data:audio/mpeg;base64,SUQzBAAAAAAAIlRTU0UAAAAOAAADTGF2ZjYyLjMuMTAwAAAAAAAAAAAAAAD/83DAAAAAAAAAAAAASW5mbwAAAA8AAAAGAAADKQBaWlpaWlpaWlpaWlpaWlpae3t7e3t7e3t7e3t7e3t7e3ucnJycnJycnJycnJycnJycvb29vb29vb29vb29vb29vb3e3t7e3t7e3t7e3t7e3t7e3v////////////////////8AAAAATGF2YzYyLjExAAAAAAAAAAAAAAAAJARRAAAAAAAAAymyj04oAAAAAAAAAAAAAAAAAP/zQMQAAAADSAAAAABMQU1FMy4xMDBVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NCxFsAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NAxKQAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/80LEowAAA0gAAAAAVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/80DEpAAAA0gAAAAAVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsSjAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQ=="
+
 export interface Playback {
   time: number
   playing: boolean
@@ -28,6 +32,8 @@ export function usePlayback(timeline: Timeline): Playback {
   const timelineRef = useRef(timeline)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const lastFrame = useRef<number | null>(null)
+  const unlocked = useRef(false)
+  const pending = useRef(false)
 
   timelineRef.current = timeline
 
@@ -84,9 +90,18 @@ export function usePlayback(timeline: Timeline): Playback {
         // the clip finished a hair before its measured duration: move on to the tail
         t = Math.max(t + dt, scene.start + audioEnd)
       } else if (audio.paused) {
-        audio.play().catch((e: unknown) => {
-          setAudioError(e instanceof Error ? e.message : "The browser wouldn't play the audio.")
-        })
+        if (!pending.current) {
+          pending.current = true
+          audio.play().then(
+            () => (pending.current = false),
+            (e: unknown) => {
+              pending.current = false
+              setAudioError(e instanceof Error && e.name === "NotAllowedError" ? "Tap play again to hear the voice." : "The audio didn't play.")
+              playingRef.current = false
+              setPlaying(false)
+            },
+          )
+        }
         t += dt
       } else {
         t = scene.start + LEAD + audio.currentTime
@@ -115,6 +130,14 @@ export function usePlayback(timeline: Timeline): Playback {
     if (!tl.total) return
     if (timeRef.current >= tl.total - 0.05) timeRef.current = 0
     setAudioError(null)
+    const audio = audioRef.current
+    if (audio && !unlocked.current) {
+      audio.src = SILENCE
+      audio.play().then(
+        () => (unlocked.current = true),
+        () => {},
+      )
+    }
     playingRef.current = true
     setPlaying(true)
     lastFrame.current = null

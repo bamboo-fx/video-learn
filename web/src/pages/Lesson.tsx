@@ -159,7 +159,15 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
   const save = useCallback(async () => {
     if (timer.current) clearTimeout(timer.current)
     timer.current = null
-    if (!dirty.current) return inflight.current ?? undefined
+    // one save at a time: an older response must never land after a newer request starts
+    while (inflight.current) {
+      try {
+        await inflight.current
+      } catch {
+        // the earlier save failed; this one retries with the latest board
+      }
+    }
+    if (!dirty.current) return
     dirty.current = false
     setSaveState("saving")
     const run = (async () => {

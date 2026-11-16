@@ -70,7 +70,10 @@ export function Stage({ scene, shown, index, count, lessonTitle, caption, thumb,
           )}
           {!thumb && caption ? (
             <div className="absolute right-0 bottom-[34px] left-0 flex justify-center px-[120px]">
-              <p className="rounded-[14px] bg-ink/88 px-[26px] py-[12px] text-center text-[30px] leading-[1.3] font-medium text-paper shadow-lg">
+              <p
+                className="rounded-[14px] bg-ink/88 px-[26px] py-[12px] text-center leading-[1.3] font-medium text-paper shadow-lg"
+                style={{ fontSize: Math.max(30, 14 / scale) }}
+              >
                 {caption}
               </p>
             </div>
