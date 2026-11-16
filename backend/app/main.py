@@ -187,7 +187,7 @@ def project_out(project: Project, owner: str | None, voices: dict[str, Any] | No
         "repo": project.repo or "",
         "repo_ref": project.repo_ref or "",
         "repo_sha": project.repo_sha or "",
-        "progress": (project.progress or [])[-40:],
+        "progress": (project.progress or [])[-PROGRESS_KEEP:],
         "voices": voices or {},
         "is_owner": owner is not None and owner == project.owner,
         "created_at": iso(project.created_at),
@@ -371,6 +371,11 @@ def fetch_snapshot(session: Session, repo: str, ref: str = "") -> github.Snapsho
     return remember(snap)
 
 
+# Every step of a write is kept, so the waiting screen's file and search counts never shrink.
+# A write is at most 40 rounds of a few tool calls; the lines are short.
+PROGRESS_KEEP = 200
+
+
 def progress_writer(project_id: str):
     """Records what Claude is doing, in its own short transaction, for the waiting screen."""
 
@@ -378,7 +383,7 @@ def progress_writer(project_id: str):
         with Session(engine) as s:
             p = s.get(Project, project_id)
             if p:
-                p.progress = [*(p.progress or [])[-30:], text]
+                p.progress = [*(p.progress or [])[-(PROGRESS_KEEP - 1):], text]
                 p.updated_at = now()  # a heartbeat: a write that's still reading isn't stale
                 s.add(p)
                 s.commit()
