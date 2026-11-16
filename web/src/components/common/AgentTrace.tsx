@@ -31,6 +31,20 @@ function parseStep(line: string): Step {
   return { icon: Dot, verb: line, kind: "other" }
 }
 
+function sameLines(a: string[], b: string[]) {
+  return a.length === b.length && a.every((x, i) => x === b[i])
+}
+
+/** The lines in `next` that weren't in `prev`: drop as many of prev's oldest lines as needed
+ *  until what's left lines up with the start of next; everything after that is new. */
+function appended(prev: string[], next: string[]): string[] {
+  for (let drop = 0; drop <= prev.length; drop++) {
+    const rest = prev.length - drop
+    if (rest <= next.length && prev.slice(drop).every((x, i) => x === next[i])) return next.slice(rest)
+  }
+  return next
+}
+
 function useElapsed() {
   const [s, setS] = useState(0)
   useEffect(() => {
@@ -43,21 +57,22 @@ function useElapsed() {
 export function AgentTrace({ lines, className }: { lines: string[]; className?: string }) {
   const steps = lines.map(parseStep)
   const elapsed = useElapsed()
-  // Running totals for the whole write: the server keeps a long but finite list of lines, so
-  // remember what this page has seen and the counts never go down.
-  const [seen, setSeen] = useState({ files: new Set<string>(), searches: new Set<string>(), key: "" })
-  const key = lines.join("\n")
-  if (seen.key !== key) {
+  // Running totals for the whole write. The server's list only grows at the end (and may drop
+  // its oldest lines), so each poll adds just the lines after the overlap with the last one.
+  // Files count once each; every search call counts, even a repeated pattern.
+  const [seen, setSeen] = useState({ files: new Set<string>(), searches: 0, last: [] as string[] })
+  if (!sameLines(seen.last, lines)) {
     const files = new Set(seen.files)
-    const searches = new Set(seen.searches)
-    for (const s of steps) {
+    let searches = seen.searches
+    for (const line of appended(seen.last, lines)) {
+      const s = parseStep(line)
       if (s.kind === "file" && s.target) files.add(s.target)
-      if (s.kind === "search" && s.target) searches.add(s.target)
+      if (s.kind === "search") searches++
     }
-    setSeen({ files, searches, key })
+    setSeen({ files, searches, last: lines })
   }
   const files = seen.files.size
-  const searches = seen.searches.size
+  const searches = seen.searches
   const summary = [files && `${files} ${files === 1 ? "file" : "files"}`, searches && `${searches} ${searches === 1 ? "search" : "searches"}`]
     .filter(Boolean)
     .join(" · ")
