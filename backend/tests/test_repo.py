@@ -394,7 +394,7 @@ def test_archive_caps(monkeypatch):
 
 def test_branch_names_with_slashes_are_resolved(monkeypatch):
     branches = {"feature/login": "a" * 40, "main": "b" * 40}
-    monkeypatch.setattr(github, "head_sha", lambda o, r, ref: branches.get(ref))
+    monkeypatch.setattr(github, "lookup_sha", lambda o, r, ref: branches.get(ref))
     assert github.resolve_ref("o", "r", "feature/login/src/app.py") == "feature/login"
     assert github.resolve_ref("o", "r", "main/app.py") == "main"
     assert github.resolve_ref("o", "r", "dev") == "dev"
@@ -461,3 +461,48 @@ def test_topic_lessons_are_told_to_write_their_code():
     from app.storyboard import LAYOUTS
 
     assert "Otherwise write the code" in LAYOUTS["code"]
+
+
+
+def test_a_github_outage_is_not_a_missing_branch(monkeypatch):
+    def down(o, r, ref):
+        raise github.RepoError("github_unavailable", "GitHub couldn't answer just now.", 503)
+
+    monkeypatch.setattr(github, "lookup_sha", down)
+    with pytest.raises(github.RepoError) as e:
+        github.resolve_ref("o", "r", "main/app.py")
+    assert e.value.code == "github_unavailable" and e.value.status == 503
+
+
+def test_a_file_link_reuses_the_stored_commit(client, monkeypatch):
+    from sqlmodel import Session
+
+    from app import main
+    from app.db import engine
+
+    snap = github.Snapshot("octo", "filelink", "e" * 40, "main", "", dict(FILES))
+    monkeypatch.setattr(github, "lookup_sha", lambda o, r, ref: "e" * 40 if ref == "main" else None)
+    monkeypatch.setattr(github, "download", lambda o, r, ref=None: snap)
+    with Session(engine) as s:
+        main.fetch_snapshot(s, "octo/filelink", "main")
+    main._snapshots.clear()
+
+    def no_download(*a, **k):
+        raise AssertionError("downloaded again")
+
+    monkeypatch.setattr(github, "download", no_download)
+    with Session(engine) as s:
+        assert main.fetch_snapshot(s, "octo/filelink", "main/app.py").sha == "e" * 40
+
+
+def test_mixed_models_are_priced_per_request(client, monkeypatch):
+    owner = {"X-Owner": "mixed-model-owner-01234567"}
+    snap = snapshot()
+    monkeypatch.setattr(github, "head_sha", lambda *a: None)
+    monkeypatch.setattr(github, "download", lambda o, r, ref=None: snap)
+    calls = [llm.Call("claude-opus-5-5", 1_000_000, 0, 1), llm.Call("claude-haiku-5-5", 1_000_000, 0, 1)]
+    monkeypatch.setattr(llm, "write_repo_lesson", lambda s, q, lvl, m, progress: (grounding.ground(repo_board(), s), calls))
+    p = client.post("/api/projects", json={"topic": "Mixed", "repo": "octo/tiny"}, headers=owner).json()
+    client.post(f"/api/projects/{p['id']}/write", headers=owner)
+    usage = client.get(f"/api/projects/{p['id']}/usage", headers=owner).json()["calls"]
+    assert usage[0]["cost_usd"] == 4.1  # $4 for Opus plus $0.10 for Haiku, not $0.20

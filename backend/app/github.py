@@ -139,16 +139,29 @@ def repo_info(owner: str, repo: str) -> dict:
     return data
 
 
-def head_sha(owner: str, repo: str, ref: str | None) -> str | None:
-    """The commit a branch points at, in one small API call, so a stored snapshot can be
-    reused without downloading. None if the API can't say (rate limit, network)."""
+def lookup_sha(owner: str, repo: str, ref: str | None) -> str | None:
+    """The commit a branch, tag or commit id points at. None means GitHub says there is no
+    such ref; a GitHub that can't answer (rate limit, outage, network) raises RepoError."""
     try:
         r = httpx.get(f"{API}/repos/{owner}/{repo}/commits/{ref or 'HEAD'}",
                       headers={**_headers(), "Accept": "application/vnd.github.sha"}, timeout=10.0)
-    except httpx.HTTPError:
-        return None
+    except httpx.HTTPError as exc:
+        raise RepoError("github_unavailable", "Couldn't reach GitHub just now. Try again in a minute.", 503) from exc
     text = r.text.strip()
-    return text if r.status_code == 200 and re.fullmatch(r"[0-9a-f]{40}", text) else None
+    if r.status_code == 200 and re.fullmatch(r"[0-9a-f]{40}", text):
+        return text
+    if r.status_code in (404, 422):
+        return None
+    raise RepoError("github_unavailable", "GitHub couldn't answer just now (it may be rate limiting). Try again in a minute.", 503)
+
+
+def head_sha(owner: str, repo: str, ref: str | None) -> str | None:
+    """The commit, when GitHub can say; None otherwise. Only used to reuse a stored snapshot,
+    so a failure just means downloading."""
+    try:
+        return lookup_sha(owner, repo, ref)
+    except RepoError:
+        return None
 
 
 def resolve_ref(owner: str, repo: str, ref_path: str | None) -> str | None:
@@ -161,7 +174,9 @@ def resolve_ref(owner: str, repo: str, ref_path: str | None) -> str | None:
         return parts[0]
     for k in range(len(parts), 0, -1):
         candidate = "/".join(parts[:k])
-        if head_sha(owner, repo, candidate):
+        # lookup_sha raises when GitHub can't answer, so an outage isn't reported as a
+        # missing branch
+        if lookup_sha(owner, repo, candidate):
             return candidate
     raise RepoError("ref_not_found", f"Couldn't find a branch at the start of {ref_path!r} in github.com/{owner}/{repo}. "
                     "Paste the repository's main link instead.", 404)
