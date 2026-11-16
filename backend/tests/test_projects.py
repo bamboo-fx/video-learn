@@ -63,3 +63,25 @@ def test_delete(client, owner):
 def test_unknown_api_route_is_json_404(client):
     r = client.get("/api/nope")
     assert r.status_code == 404 and r.json()["error"]["code"] == "not_found"
+
+
+def test_notes_stay_private_on_a_shared_link(client, owner, other):
+    r = client.post("/api/projects", json={"topic": "Private notes", "notes": "my lecture notes"}, headers=owner).json()
+    assert client.get(f"/api/projects/{r['id']}", headers=owner).json()["notes"] == "my lecture notes"
+    assert client.get(f"/api/projects/{r['id']}", headers=other).json()["notes"] == ""
+
+
+def test_unexpected_errors_still_use_the_envelope(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import main
+
+    def boom():
+        raise RuntimeError("kaboom")
+
+    from fastapi.routing import APIRoute
+
+    main.app.router.routes.insert(0, APIRoute("/api/__boom", boom))  # ahead of the /api catch-all
+    with TestClient(main.app, raise_server_exceptions=False) as c:
+        r = c.get("/api/__boom")
+    assert r.status_code == 500 and r.json()["error"]["code"] == "server_error"

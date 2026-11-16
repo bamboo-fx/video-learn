@@ -42,6 +42,12 @@ def test_sentences_splits_on_end_punctuation():
     assert spans == ["First one.", "Second one?", "Third!", "And a tail without a stop"]
 
 
+def test_sentences_keep_dots_inside_words():
+    text = "Node.js runs JavaScript. Pi is about 3.14, roughly! Done"
+    spans = [text[a:b] for a, b in sentences(text)]
+    assert spans == ["Node.js runs JavaScript.", "Pi is about 3.14, roughly!", "Done"]
+
+
 def test_normalize_repairs_ids_and_reveals():
     raw = json.loads(json.dumps(EXAMPLE))
     raw["scenes"][1]["id"] = "s1"  # duplicate
