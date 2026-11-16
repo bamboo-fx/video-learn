@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { deleteScene, duplicateScene, insertScene, moveScene, updateScene } from "@/lib/edit"
+import { deleteScene, duplicateScene, insertScene, MAX_SCENES, moveScene, updateScene } from "@/lib/edit"
 import { buildTimeline, captionAt, clock, sceneAt } from "@/lib/timing"
 import { usePlayback } from "@/lib/usePlayback"
 import { cn } from "@/lib/utils"
@@ -33,12 +33,14 @@ import { Timeline } from "./Timeline"
 import type { EditorHost, VoiceState } from "./types"
 
 export function Editor({ host, banner }: { host: EditorHost; banner?: React.ReactNode }) {
-  const { board, voices, editable } = host
+  const { board, voices } = host
+  // while an AI edit runs, hand edits pause, so its reply can't overwrite what you typed
+  const editable = host.editable && !host.locked
   const timeline = useMemo(() => buildTimeline(board, voices), [board, voices])
   const pb = usePlayback(timeline)
   const [selectedId, setSelectedId] = useState<string | null>(board.scenes[0]?.id ?? null)
   const [cc, setCc] = useState(true)
-  const [tab, setTab] = useState(editable ? "scene" : "script")
+  const [tab, setTab] = useState(host.editable ? "scene" : "script")
 
   const current = sceneAt(timeline, pb.time)
   const activeId = pb.playing ? (current?.id ?? null) : selectedId
@@ -144,6 +146,11 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
         ) : null}
       </header>
       {banner}
+      {host.locked ? (
+        <div role="status" className="flex items-center gap-2 border-b border-border bg-ember-soft/40 px-4 py-2 text-xs text-muted-foreground">
+          <Loader2 className="size-3.5 animate-spin text-ember motion-reduce:animate-none" aria-hidden /> {host.locked}
+        </div>
+      ) : null}
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {/* scene rail */}
@@ -171,6 +178,8 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
                 variant="outline"
                 size="sm"
                 className="w-full"
+                disabled={board.scenes.length >= MAX_SCENES}
+                title={board.scenes.length >= MAX_SCENES ? `A lesson has at most ${MAX_SCENES} scenes` : undefined}
                 onClick={() => {
                   const r = insertScene(board, activeId)
                   host.setBoard(r.board)
@@ -308,8 +317,8 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
                 <AskAI
                   scene={activeScene}
                   sceneIndex={activeIndex}
-                  aiEdit={editable ? host.aiEdit : null}
-                  unavailable={editable ? host.aiUnavailable : "Only the person who made this lesson can ask for changes."}
+                  aiEdit={host.editable ? host.aiEdit : null}
+                  unavailable={host.editable ? host.aiUnavailable : "Only the person who made this lesson can ask for changes."}
                   onJump={select}
                   sceneName={sceneName}
                 />
