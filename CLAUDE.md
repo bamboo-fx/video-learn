@@ -17,7 +17,7 @@ scenes that changed get re-voiced and the person can still tweak everything by h
 
 ## Stack
 
-- `backend/`: Python 3.12, FastAPI, SQLModel, Postgres. `requirements.txt`, not poetry/uv.
+- `backend/`: Python 3.13, FastAPI, SQLModel, Postgres. `requirements.txt`, not poetry/uv.
 - `web/`: React, Vite, TypeScript, Tailwind, shadcn/ui. Built to static files and served
   by FastAPI, so the app is one service at one URL (no CORS). Storyboard types are generated
   from `shared/storyboard.schema.json` (`npm run gen:types`); never edit `storyboard.gen.ts`.
