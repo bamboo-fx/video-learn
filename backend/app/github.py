@@ -18,10 +18,12 @@ import json
 import os
 import re
 import tarfile
+import time
+import zlib
 from dataclasses import dataclass, field
-from functools import lru_cache
 
 import httpx
+import regex
 
 API = "https://api.github.com"
 CODELOAD = "https://codeload.github.com"
@@ -30,6 +32,10 @@ MAX_DOWNLOAD = 60 * 1024 * 1024  # compressed tarball
 MAX_FILE = 512 * 1024
 MAX_TOTAL = 8 * 1024 * 1024
 MAX_FILES = 2500
+MAX_UNPACKED = 400 * 1024 * 1024  # everything in the archive, kept or not
+MAX_MEMBERS = 200_000
+MAX_CANDIDATES = 32 * 1024 * 1024  # text held while choosing what to keep
+SEARCH_SECONDS = 2.0
 
 SKIP_DIRS = {
     ".git", "node_modules", "vendor", "dist", "build", "out", ".next", ".nuxt", "target", "__pycache__",
@@ -70,6 +76,7 @@ class Snapshot:
     files: dict[str, str] = field(default_factory=dict)
     skipped: int = 0
     truncated: bool = False
+    _lines: dict[str, tuple[str, ...]] = field(default_factory=dict, repr=False, compare=False)
 
     @property
     def name(self) -> str:
@@ -128,6 +135,18 @@ def repo_info(owner: str, repo: str) -> dict:
     return data
 
 
+def head_sha(owner: str, repo: str, ref: str | None) -> str | None:
+    """The commit a branch points at, in one small API call, so a stored snapshot can be
+    reused without downloading. None if the API can't say (rate limit, network)."""
+    try:
+        r = httpx.get(f"{API}/repos/{owner}/{repo}/commits/{ref or 'HEAD'}",
+                      headers={**_headers(), "Accept": "application/vnd.github.sha"}, timeout=10.0)
+    except httpx.HTTPError:
+        return None
+    text = r.text.strip()
+    return text if r.status_code == 200 and re.fullmatch(r"[0-9a-f]{40}", text) else None
+
+
 def keep(path: str, size: int) -> bool:
     parts = path.split("/")
     if any(p in SKIP_DIRS for p in parts[:-1]):
@@ -181,26 +200,25 @@ def download(owner: str, repo: str, ref: str | None = None) -> Snapshot:
 
     buf.seek(0)
     snap = Snapshot(owner=owner, repo=repo, sha="", ref=ref, description=(info.get("description") or "").strip())
+    candidates: list[tuple[tuple[int, int, str], str]] = []
+    held = unpacked = members = 0
     try:
-        with tarfile.open(fileobj=buf, mode="r:gz") as tar:
-            # GitHub puts the full commit id in the archive's pax header
-            snap.sha = (tar.pax_headers or {}).get("comment", "")
-            members = {}
-            for member in tar.getmembers():
+        # One pass in archive order ("r|gz" never rewinds the stream).
+        with tarfile.open(fileobj=buf, mode="r|gz") as tar:
+            for member in tar:
+                members += 1
+                unpacked += max(0, member.size)
+                if members > MAX_MEMBERS or unpacked > MAX_UNPACKED:
+                    raise RepoError("repo_too_big", "That repository is too big to read. Try a smaller one.", 413)
+                if not snap.sha:
+                    # GitHub puts the full commit id in the archive's pax header
+                    snap.sha = (tar.pax_headers or {}).get("comment", "")
                 if not member.isfile():
                     continue
                 path = member.name.split("/", 1)[1] if "/" in member.name else member.name
-                if keep(path, member.size):
-                    members[path] = member
-                else:
+                if not keep(path, member.size) or held + member.size > MAX_CANDIDATES:
                     snap.skipped += 1
-            # When the repository is bigger than the budget, keep the code that explains it first.
-            total = 0
-            for path in sorted(members, key=rank):
-                member = members[path]
-                if len(snap.files) >= MAX_FILES or total + member.size > MAX_TOTAL:
-                    snap.truncated = True
-                    snap.skipped += 1
+                    snap.truncated = snap.truncated or held + member.size > MAX_CANDIDATES
                     continue
                 raw = tar.extractfile(member).read()  # type: ignore[union-attr]
                 if b"\x00" in raw[:4096]:
@@ -211,10 +229,21 @@ def download(owner: str, repo: str, ref: str | None = None) -> Snapshot:
                 except UnicodeDecodeError:
                     snap.skipped += 1
                     continue
-                snap.files[path] = text.replace("\r\n", "\n")
-                total += member.size
-    except tarfile.TarError as exc:
-        raise RepoError("repo_unreadable", "GitHub sent something that isn't a readable archive. Try again.", 502) from exc
+                candidates.append((rank(path), text.replace("\r\n", "\n")))
+                held += len(raw)
+    except (tarfile.TarError, EOFError, OSError, zlib.error) as exc:
+        raise RepoError("repo_unreadable", "GitHub sent an archive that couldn't be read. Try again.", 502) from exc
+
+    # When the repository is bigger than the budget, keep the code that explains it first.
+    total = 0
+    for key, text in sorted(candidates, key=lambda c: c[0]):
+        size = len(text.encode())
+        if len(snap.files) >= MAX_FILES or total + size > MAX_TOTAL:
+            snap.truncated = True
+            snap.skipped += 1
+            continue
+        snap.files[key[2]] = text
+        total += size
     snap.files = dict(sorted(snap.files.items()))
 
     if not snap.sha:
@@ -227,14 +256,13 @@ def download(owner: str, repo: str, ref: str | None = None) -> Snapshot:
 # ---------------------------------------------------------------- reading a snapshot
 
 
-@lru_cache(maxsize=256)
-def _lines(text: str) -> tuple[str, ...]:
-    # a final newline ends the last line; it doesn't start an empty one
-    return tuple((text[:-1] if text.endswith("\n") else text).split("\n"))
-
-
 def lines(snap: Snapshot, path: str) -> tuple[str, ...]:
-    return _lines(snap.files[path])
+    """A file's lines, cached on the snapshot (so the cache goes when the snapshot does)."""
+    if path not in snap._lines:
+        text = snap.files[path]
+        # a final newline ends the last line; it doesn't start an empty one
+        snap._lines[path] = tuple((text[:-1] if text.endswith("\n") else text).split("\n"))
+    return snap._lines[path]
 
 
 def tree(snap: Snapshot, prefix: str = "", limit: int = 400) -> str:
@@ -275,18 +303,30 @@ def read(snap: Snapshot, path: str, start: int = 1, end: int = 0, max_lines: int
 
 
 def search(snap: Snapshot, pattern: str, prefix: str = "", limit: int = 60) -> str:
-    """Case-insensitive search: a regular expression if it compiles, else plain text."""
+    """Case-insensitive search: a regular expression if it compiles, else plain text. The
+    `regex` module runs with a time limit and without holding the interpreter lock, so a
+    pathological pattern can't freeze the server."""
+    pattern = pattern[:200]
     try:
-        rx = re.compile(pattern, re.I)
-    except re.error:
-        rx = re.compile(re.escape(pattern), re.I)
+        rx = regex.compile(pattern, regex.I)
+    except regex.error:
+        rx = regex.compile(regex.escape(pattern), regex.I)
     prefix = prefix.strip("/")
+    deadline = time.monotonic() + SEARCH_SECONDS
     hits = []
     for path in sorted(snap.files):
         if prefix and not path.startswith(prefix):
             continue
         for n, line in enumerate(lines(snap, path), 1):
-            if rx.search(line):
+            left = deadline - time.monotonic()
+            try:
+                if left <= 0:
+                    raise TimeoutError
+                found = rx.search(line, timeout=left, concurrent=True)
+            except TimeoutError:
+                more = "\n".join(hits)
+                return (more + "\n" if more else "") + "[search stopped: the pattern took too long; use a simpler one]"
+            if found:
                 hits.append(f"{path}:{n}: {line.strip()[:160]}")
                 if len(hits) >= limit:
                     return "\n".join(hits) + f"\n[stopped at {limit} matches; narrow the search]"

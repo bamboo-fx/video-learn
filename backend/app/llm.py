@@ -328,6 +328,7 @@ def edit_storyboard(board: Storyboard, instruction: str, scene_id: str | None, n
 def _edit_loop(current: Storyboard, messages: list[dict[str, Any]], changes: list[dict[str, str]], calls: list[Call],
                snap: github.Snapshot | None = None, progress: Progress = lambda _: None) -> EditOutcome:
     tools = [*READ_TOOLS, *EDIT_TOOLS] if snap is not None else EDIT_TOOLS
+    checked = False
     for _ in range(16 if snap is not None else 8):
         resp, call = _call(
             max_tokens=16000,
@@ -339,6 +340,13 @@ def _edit_loop(current: Storyboard, messages: list[dict[str, Any]], changes: lis
         calls.append(call)
         uses = [b for b in resp.content if getattr(b, "type", "") == "tool_use"]
         if not uses:
+            issues = grounding.problems(current, snap) if snap is not None else []
+            if issues and not checked:
+                # one chance to fix citations before they're repaired (and code scenes demoted)
+                checked = True
+                messages.append({"role": "assistant", "content": resp.content})
+                messages.append({"role": "user", "content": "Before you finish, fix these citations with update_scene:\n- " + "\n- ".join(issues)})
+                continue
             summary = " ".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
             return EditOutcome(normalize(current), summary or "Done.", changes, calls)
 
