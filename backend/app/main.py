@@ -13,7 +13,9 @@ from datetime import timedelta, timezone
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy import update
+from collections import OrderedDict
+
+from sqlalchemy import func, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, col, select
 
@@ -172,6 +174,7 @@ def project_out(project: Project, owner: str | None, voices: dict[str, Any] | No
         "error": project.error,
         "storyboard": project.storyboard,
         "repo": project.repo or "",
+        "repo_ref": project.repo_ref or "",
         "repo_sha": project.repo_sha or "",
         "progress": (project.progress or [])[-12:],
         "voices": voices or {},
@@ -220,11 +223,12 @@ def create_project(body: ProjectIn, session: SessionDep, owner: OwnerDep):
     repo = ""
     if body.repo.strip():
         try:
-            o, r, _ = github.parse_repo(body.repo)
+            o, r, ref = github.parse_repo(body.repo)
         except github.RepoError as exc:
             raise ApiError(exc.status, exc.code, exc.message) from exc
         repo = f"{o}/{r}"
-    project = Project(owner=owner, topic=body.topic.strip(), notes=body.notes.strip(), level=body.level, minutes=body.minutes, repo=repo)
+    project = Project(owner=owner, topic=body.topic.strip(), notes=body.notes.strip(), level=body.level, minutes=body.minutes,
+                      repo=repo, repo_ref=(ref or "") if repo else "")
     session.add(project)
     session.commit()
     session.refresh(project)
@@ -248,7 +252,7 @@ def save_storyboard(project_id: str, body: StoryboardIn, session: SessionDep, ow
     try:
         board = normalize(Storyboard.model_validate(body.storyboard))
         if project.repo and project.repo_sha and (snap := load_snapshot(session, f"{project.repo}@{project.repo_sha}")):
-            board = grounding.ground(board, snap)  # code on screen always comes from the file
+            board = grounding.ground(board, snap, hand=True)  # code on screen always comes from the file
     except ValidationError as exc:
         first = exc.errors()[0]
         where = ".".join(str(p) for p in first["loc"])
@@ -272,12 +276,14 @@ def delete_project(project_id: str, session: SessionDep, owner: OwnerDep):
 
 
 def log_calls(session: Session, project_id: str, owner: str, kind: str, calls: list[llm.Call], error: str = "") -> None:
-    """Every Claude request is logged, including the ones that failed: they cost money too."""
-    for k, call in enumerate(calls or [llm.Call(llm.model())]):
-        failed = bool(error) and k == len(calls or [None]) - 1
-        session.add(Usage(project_id=project_id, owner=owner, kind=kind, provider="anthropic", model=call.model,
-                          input_tokens=call.input_tokens, output_tokens=call.output_tokens, ms=call.ms,
-                          ok=not failed, error=error if failed else ""))
+    """One row per write or edit, with every Claude request it made summed in, including the
+    ones that failed: they cost money too. Limits count rows, so a repo lesson that took 30
+    requests still counts as one lesson."""
+    calls = calls or []
+    session.add(Usage(project_id=project_id, owner=owner, kind=kind, provider="anthropic",
+                      model=calls[-1].model if calls else llm.model(), requests=len(calls),
+                      input_tokens=sum(c.input_tokens for c in calls), output_tokens=sum(c.output_tokens for c in calls),
+                      ms=sum(c.ms for c in calls), ok=not error, error=error))
     session.commit()
 
 
@@ -296,27 +302,40 @@ def set_project(session: Session, project_id: str, **fields: Any) -> Project:
     return project
 
 
-_snapshots: dict[str, github.Snapshot] = {}
+_snapshots: "OrderedDict[str, github.Snapshot]" = OrderedDict()
+SNAPSHOT_CACHE = 8  # each is up to 8 MB of text
+
+
+def remember(snap: github.Snapshot) -> github.Snapshot:
+    _snapshots[snap.key] = snap
+    _snapshots.move_to_end(snap.key)
+    while len(_snapshots) > SNAPSHOT_CACHE:
+        _snapshots.popitem(last=False)
+    return snap
 
 
 def load_snapshot(session: Session, key: str) -> github.Snapshot | None:
     """A stored repository, from memory if this server read it recently."""
     if key in _snapshots:
+        _snapshots.move_to_end(key)
         return _snapshots[key]
     row = session.get(RepoSnapshot, key)
     if not row:
         return None
-    snap = github.Snapshot.unpack(row.owner, row.repo, row.sha, row.ref, row.description, row.files)
-    if len(_snapshots) > 16:
-        _snapshots.pop(next(iter(_snapshots)))
-    _snapshots[key] = snap
-    return snap
+    return remember(github.Snapshot.unpack(row.owner, row.repo, row.sha, row.ref, row.description, row.files))
 
 
-def fetch_snapshot(session: Session, repo: str) -> github.Snapshot:
-    """Download the repository's current commit, unless that commit is already stored."""
+def fetch_snapshot(session: Session, repo: str, ref: str = "") -> github.Snapshot:
+    """The repository at its current commit: from storage when that commit was read before
+    (one small API call to learn the commit), otherwise downloaded."""
     owner, name = repo.split("/", 1)
-    snap = github.download(owner, name)
+    sha = github.head_sha(owner, name, ref or None)
+    if sha:
+        row = session.exec(select(RepoSnapshot).where(col(RepoSnapshot.sha) == sha, func.lower(RepoSnapshot.owner) == owner.lower(),
+                                                      func.lower(RepoSnapshot.repo) == name.lower())).first()
+        if row and (snap := load_snapshot(session, row.key)):
+            return snap
+    snap = github.download(owner, name, ref or None)
     if not session.get(RepoSnapshot, snap.key):
         session.add(RepoSnapshot(key=snap.key, owner=snap.owner, repo=snap.repo, sha=snap.sha, ref=snap.ref,
                                  description=snap.description, file_count=len(snap.files), files=snap.pack()))
@@ -324,8 +343,7 @@ def fetch_snapshot(session: Session, repo: str) -> github.Snapshot:
             session.commit()
         except IntegrityError:
             session.rollback()  # another request stored the same commit first
-    _snapshots[snap.key] = snap
-    return snap
+    return remember(snap)
 
 
 def progress_writer(project_id: str):
@@ -336,6 +354,7 @@ def progress_writer(project_id: str):
             p = s.get(Project, project_id)
             if p:
                 p.progress = [*(p.progress or [])[-30:], text]
+                p.updated_at = now()  # a heartbeat: a write that's still reading isn't stale
                 s.add(p)
                 s.commit()
 
@@ -362,7 +381,7 @@ def write_project(project_id: str, session: SessionDep, owner: OwnerDep):
     if not claimed:
         raise ApiError(409, "already_writing", "This lesson is already being written.")
 
-    topic, notes, level, minutes, repo = project.topic, project.notes, project.level, project.minutes, project.repo
+    topic, notes, level, minutes, repo, ref = project.topic, project.notes, project.level, project.minutes, project.repo, project.repo_ref or ""
     voice_id = project.voice_id or tts.voice_id()
     session.close()  # don't hold a database connection while GitHub or Claude works
     progress = progress_writer(project_id)
@@ -371,10 +390,11 @@ def write_project(project_id: str, session: SessionDep, owner: OwnerDep):
         if repo:
             set_project(session, project_id, progress=[f"Downloading github.com/{repo}"])
             session.close()
-            snap = fetch_snapshot(session, repo)
+            snap = fetch_snapshot(session, repo, ref)
             repo_sha = snap.sha
-            set_project(session, project_id, repo_sha=snap.sha,
-                        progress=[f"Downloaded {len(snap.files)} files from github.com/{snap.name}"])
+            # GitHub's spelling of the name, so the snapshot is found again for edits and saves
+            set_project(session, project_id, repo=snap.name, repo_sha=snap.sha,
+                        progress=[f"Read {len(snap.files)} files from github.com/{snap.name}"])
             session.close()
             board, calls = llm.write_repo_lesson(snap, topic, level, minutes, progress)
         else:
@@ -387,6 +407,11 @@ def write_project(project_id: str, session: SessionDep, owner: OwnerDep):
         log_calls(session, project_id, owner, "write", exc.calls, error=exc.code)
         set_project(session, project_id, status="failed", error=exc.message)
         raise ApiError(exc.status, exc.code, exc.message) from exc
+    except Exception as exc:
+        # anything unplanned still ends the write, so the page doesn't wait ten minutes
+        session.rollback()
+        set_project(session, project_id, status="failed", error="Something went wrong while writing. Try again.")
+        raise ApiError(500, "write_failed", "Something went wrong while writing. Try again.") from exc
 
     log_calls(session, project_id, owner, "write", calls)
     project = set_project(session, project_id, storyboard=board.model_dump(), title=board.title,

@@ -49,7 +49,9 @@ def add_missing_columns(eng) -> None:
                 if col.name in have:
                     continue
                 ddl = col.type.compile(dialect=eng.dialect)
-                conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {ddl}'))
+                # IF NOT EXISTS: two servers starting at once must not both fail on the same column
+                guard = "IF NOT EXISTS " if eng.dialect.name == "postgresql" else ""
+                conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN {guard}"{col.name}" {ddl}'))
 
 
 def get_session() -> Iterator[Session]:

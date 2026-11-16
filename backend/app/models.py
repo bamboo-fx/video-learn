@@ -38,6 +38,7 @@ class Project(SQLModel, table=True):
     storyboard: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     # the codebase this lesson teaches ("owner/repo" at a commit), when it teaches one
     repo: str = ""
+    repo_ref: str = ""  # a branch or tag from the pasted link; empty = the default branch
     repo_sha: str = ""
     # what Claude is doing right now while it writes ("Reading app/main.py"), newest last
     progress: list[str] = Field(default_factory=list, sa_column=Column(JSON))
@@ -75,6 +76,7 @@ class Usage(SQLModel, table=True):
     project_id: str = Field(index=True)
     owner: str = Field(index=True)
     kind: str  # write | edit | voice
+    requests: int = 1  # Claude requests in this write or edit (a repo lesson makes many)
     provider: str  # anthropic | elevenlabs
     model: str
     input_tokens: int = 0

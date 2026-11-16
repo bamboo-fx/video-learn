@@ -45,7 +45,8 @@ class Item(Strict):
     text: str = Field(description="What appears on screen. Short: at most 9 words.")
     detail: str = Field(description="A smaller second line, or an empty string.")
     at: int = Field(ge=0, description="Index of the narration sentence during which this item appears.")
-    line: int = Field(ge=0, description="On a code scene, the file line this item is about (highlighted when it appears); 0 otherwise.")
+    # defaults let lessons saved before sources existed still load and save
+    line: int = Field(default=0, ge=0, description="On a code scene, the file line this item is about (highlighted when it appears); 0 otherwise.")
 
 
 class Source(Strict):
@@ -61,7 +62,10 @@ class Scene(Strict):
     subheading: str = Field(description="One short line under the heading, or an empty string.")
     items: list[Item] = Field(max_length=MAX_ITEMS)
     code: str = Field(description="Leave empty: on a code scene it's filled in from `source`.")
-    source: Source = Field(description="Where in the repository this scene comes from. Every scene that explains code cites it.")
+    source: Source = Field(
+        default_factory=lambda: Source(path="", start_line=0, end_line=0),
+        description="Where in the repository this scene comes from. Every scene that explains code cites it.",
+    )
     narration: str = Field(
         description="What the voice says over this scene, written for the ear: 2 to 5 short sentences, "
         "plain words, numbers and symbols written the way they are said."
@@ -139,7 +143,7 @@ def strict_json_schema(model: type[BaseModel]) -> dict[str, Any]:
             for k, v in node.items():
                 if k == "properties":  # property names are data, not keywords: keep them all
                     out[k] = {name: walk(sub) for name, sub in v.items()}
-                elif k in ("title", "default") and not isinstance(v, (dict, list)):
+                elif k == "default" or (k == "title" and not isinstance(v, (dict, list))):
                     continue  # schema annotations the API doesn't need
                 else:
                     out[k] = walk(v)

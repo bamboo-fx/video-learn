@@ -219,3 +219,173 @@ def test_new_columns_are_added_to_an_old_table(tmp_path):
     add_missing_columns(eng)
     cols = {c["name"] for c in inspect(eng).get_columns("project")}
     assert {"repo", "repo_sha", "progress", "storyboard"} <= cols
+
+
+# ---------------------------------------------------------------- fixes from the second review
+
+
+def test_a_repo_lesson_counts_as_one_lesson_however_many_requests(client, monkeypatch):
+    monkeypatch.setenv("LIMIT_WRITES_PER_BROWSER", "2")
+    owner = {"X-Owner": "many-requests-owner-01234567"}
+    snap = snapshot()
+    monkeypatch.setattr(github, "head_sha", lambda *a: None)
+    monkeypatch.setattr(github, "download", lambda o, r, ref=None: snap)
+    many = [llm.Call("claude-test", 1000, 100, 10) for _ in range(30)]
+    monkeypatch.setattr(llm, "write_repo_lesson", lambda s, q, lvl, m, progress: (grounding.ground(repo_board(), s), many))
+    first = client.post("/api/projects", json={"topic": "One", "repo": "octo/tiny"}, headers=owner).json()
+    assert client.post(f"/api/projects/{first['id']}/write", headers=owner).status_code == 200
+    second = client.post("/api/projects", json={"topic": "Two", "repo": "octo/tiny"}, headers=owner).json()
+    assert client.post(f"/api/projects/{second['id']}/write", headers=owner).status_code == 200
+    usage = client.get(f"/api/projects/{first['id']}/usage", headers=owner).json()["calls"]
+    assert len(usage) == 1 and usage[0]["requests"] == 30 and usage[0]["input_tokens"] == 30000
+
+
+def test_lessons_saved_before_sources_existed_still_load():
+    old = json.loads(json.dumps(repo_board().model_dump()))
+    for scene in old["scenes"]:
+        scene.pop("source")
+        for item in scene["items"]:
+            item.pop("line")
+    board = Storyboard.model_validate(old)
+    assert board.scenes[1].source.path == "" and board.scenes[1].items[0].line == 0
+    assert "default" not in json.dumps(llm.strict_json_schema(Storyboard))
+
+
+def test_repo_name_is_stored_the_way_github_spells_it(client, monkeypatch):
+    owner = {"X-Owner": "case-owner-0123456789abcd"}
+    snap = snapshot()  # GitHub calls it octo/tiny
+    monkeypatch.setattr(github, "head_sha", lambda *a: None)
+    monkeypatch.setattr(github, "download", lambda o, r, ref=None: snap)
+    monkeypatch.setattr(llm, "write_repo_lesson", lambda s, q, lvl, m, progress: (grounding.ground(repo_board(), s), [llm.Call("c", 1, 1, 1)]))
+    p = client.post("/api/projects", json={"topic": "Case", "repo": "github.com/Octo/Tiny"}, headers=owner).json()
+    written = client.post(f"/api/projects/{p['id']}/write", headers=owner).json()
+    assert written["repo"] == "octo/tiny"
+    board = written["storyboard"]
+    board["scenes"][1]["code"] = "print('invented')"
+    saved = client.put(f"/api/projects/{p['id']}/storyboard", json={"storyboard": board}, headers=owner).json()
+    assert saved["storyboard"]["scenes"][1]["code"].startswith("def hello")
+
+
+def test_a_half_typed_source_survives_a_hand_save():
+    snap = snapshot()
+    board = repo_board(path="gre", start_line=0, end_line=0)  # mid-typing
+    kept = grounding.ground(board, snap, hand=True)
+    assert kept.scenes[1].layout == "code" and kept.scenes[1].source.path == "gre" and kept.scenes[1].code == ""
+    assert grounding.ground(board, snap).scenes[1].layout == "points"  # Claude's output still gets repaired
+
+
+def test_progress_is_a_heartbeat(client):
+    from app.main import progress_writer
+    from app.models import Project, now
+    from datetime import timedelta
+    from sqlmodel import Session
+
+    from app.db import engine
+
+    owner = {"X-Owner": "heartbeat-owner-0123456789"}
+    p = client.post("/api/projects", json={"topic": "Heartbeat", "repo": "octo/tiny"}, headers=owner).json()
+    with Session(engine) as s:
+        row = s.get(Project, p["id"])
+        row.status, row.updated_at = "writing", now() - timedelta(minutes=30)
+        s.add(row)
+        s.commit()
+    progress_writer(p["id"])("Reading app.py")
+    after = client.get(f"/api/projects/{p['id']}", headers=owner).json()
+    assert after["status"] == "writing" and after["progress"][-1] == "Reading app.py"
+
+
+def test_a_pathological_search_stops_instead_of_hanging(monkeypatch):
+    import time
+
+    monkeypatch.setattr(github, "SEARCH_SECONDS", 0.3)
+    snap = github.Snapshot("o", "r", "s", "main", "", {"x.txt": "a" * 40 + "b"})
+    started = time.monotonic()
+    out = github.search(snap, r"(a|aa)+$")
+    assert time.monotonic() - started < 3
+    assert "took too long" in out or out.startswith("No matches")
+
+
+def test_a_broken_archive_is_a_readable_error(monkeypatch):
+    data = tarball({"app.py": b"print(1)\n"})[:-40]  # truncated gzip
+
+    class FakeStream:
+        status_code = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def iter_bytes(self):
+            yield data
+
+    monkeypatch.setattr(github, "repo_info", lambda o, r: {})
+    monkeypatch.setattr(github.httpx, "stream", lambda *a, **k: FakeStream())
+    with pytest.raises(github.RepoError) as e:
+        github.download("octo", "tiny")
+    assert e.value.code == "repo_unreadable"
+
+
+def test_an_unplanned_failure_ends_the_write(client, monkeypatch):
+    owner = {"X-Owner": "unplanned-owner-0123456789"}
+    monkeypatch.setattr(github, "head_sha", lambda *a: None)
+
+    def boom(o, r, ref=None):
+        raise RuntimeError("disk on fire")
+
+    monkeypatch.setattr(github, "download", boom)
+    p = client.post("/api/projects", json={"topic": "Boom", "repo": "octo/tiny"}, headers=owner).json()
+    r = client.post(f"/api/projects/{p['id']}/write", headers=owner)
+    assert r.status_code == 500 and r.json()["error"]["code"] == "write_failed"
+    assert client.get(f"/api/projects/{p['id']}", headers=owner).json()["status"] == "failed"
+
+
+def test_a_stored_commit_is_reused_without_downloading(client, monkeypatch):
+    from sqlmodel import Session
+
+    from app import main
+    from app.db import engine
+
+    snap = github.Snapshot("octo", "reuse", "f" * 40, "main", "", dict(FILES))
+    monkeypatch.setattr(github, "download", lambda o, r, ref=None: snap)
+    with Session(engine) as s:
+        main.fetch_snapshot(s, "octo/reuse")  # stores it
+    main._snapshots.clear()
+
+    def no_download(*a, **k):
+        raise AssertionError("downloaded again")
+
+    monkeypatch.setattr(github, "download", no_download)
+    monkeypatch.setattr(github, "head_sha", lambda o, r, ref: "f" * 40)
+    with Session(engine) as s:
+        assert main.fetch_snapshot(s, "Octo/Reuse").sha == "f" * 40
+
+
+def test_a_branch_link_keeps_its_branch(client):
+    owner = {"X-Owner": "branch-owner-0123456789ab"}
+    p = client.post("/api/projects", json={"topic": "Branch", "repo": "https://github.com/octo/tiny/tree/dev"}, headers=owner).json()
+    assert p["repo"] == "octo/tiny" and p["repo_ref"] == "dev"
+
+
+def test_archive_caps(monkeypatch):
+    data = tarball({f"f{i}.py": b"x = 1\n" for i in range(5)})
+
+    class FakeStream:
+        status_code = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def iter_bytes(self):
+            yield data
+
+    monkeypatch.setattr(github, "repo_info", lambda o, r: {})
+    monkeypatch.setattr(github.httpx, "stream", lambda *a, **k: FakeStream())
+    monkeypatch.setattr(github, "MAX_MEMBERS", 3)
+    with pytest.raises(github.RepoError) as e:
+        github.download("octo", "tiny")
+    assert e.value.code == "repo_too_big"
