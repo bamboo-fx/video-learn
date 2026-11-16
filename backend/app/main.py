@@ -53,6 +53,15 @@ async def validation_error(_: Request, exc: RequestValidationError):
     return JSONResponse({"error": {"code": "invalid_request", "message": msg}}, status_code=422)
 
 
+@app.exception_handler(Exception)
+async def unexpected_error(_: Request, exc: Exception):
+    """Anything unplanned still answers in the same shape, so the page can say something."""
+    import logging
+
+    logging.getLogger("video-learn").exception("unhandled error", exc_info=exc)
+    return JSONResponse({"error": {"code": "server_error", "message": "Something went wrong on the server. Try again."}}, status_code=500)
+
+
 # ---------------------------------------------------------------- who is asking
 
 OWNER_RE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
@@ -105,7 +114,8 @@ def project_out(project: Project, owner: str | None, voices: dict[str, Any] | No
     return {
         "id": project.id,
         "topic": project.topic,
-        "notes": project.notes,
+        # notes are the owner's own material; a share link shows the lesson, not the notes
+        "notes": project.notes if owner is not None and owner == project.owner else "",
         "level": project.level,
         "minutes": project.minutes,
         "title": project.title or project.topic,
