@@ -121,7 +121,14 @@ def strict_json_schema(model: type[BaseModel]) -> dict[str, Any]:
         if isinstance(node, dict):
             if "$ref" in node:
                 return walk(deepcopy(defs[node["$ref"].split("/")[-1]]))
-            out = {k: walk(v) for k, v in node.items() if k not in ("title", "default")}
+            out = {}
+            for k, v in node.items():
+                if k == "properties":  # property names are data, not keywords: keep them all
+                    out[k] = {name: walk(sub) for name, sub in v.items()}
+                elif k in ("title", "default") and not isinstance(v, (dict, list)):
+                    continue  # schema annotations the API doesn't need
+                else:
+                    out[k] = walk(v)
             if out.get("type") == "object":
                 out["additionalProperties"] = False
                 out["required"] = list(out.get("properties", {}).keys())
