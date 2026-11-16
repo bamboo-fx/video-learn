@@ -312,7 +312,7 @@ function CodeLayout({ scene, on, thumb }: LayoutProps) {
   const wide = widest > 56
   // shrink the code to fit its card: the widest line and the line count both decide
   const byWidth = Math.floor((wide ? 700 : 560) / ((widest + 3.2) * 0.6))
-  const byHeight = Math.floor(380 / (Math.max(lines.length, 4) * 1.55))
+  const byHeight = Math.floor(330 / (Math.max(lines.length, 4) * 1.55))
   const font = Math.max(13, Math.min(26, byWidth, byHeight))
   // lines named by the items that have appeared; the newest one is the strongest
   const lit = scene.items.map((it, i) => (on(i) && it.line ? it.line : 0)).filter(Boolean)

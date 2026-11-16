@@ -48,8 +48,8 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
   const shownTiming = pb.playing ? current : timeline.scenes[activeIndex]
   const local = shownTiming ? pb.time - shownTiming.start : 0
   const inScene = shownTiming && pb.time >= shownTiming.start && pb.time < shownTiming.start + shownTiming.duration
-  // While editing and paused, show the whole scene; while playing (or watching), reveal on cue.
-  const preview = editable && !pb.playing
+  // Paused, show the whole scene (a half-empty slide reads as broken); playing, reveal on cue.
+  const preview = !pb.playing
   const shown = shownTiming?.reveals.map((r) => (preview ? true : inScene ? local >= r : false))
   const caption = cc && pb.playing && inScene ? (captionAt(shownTiming, local)?.text ?? null) : null
 
