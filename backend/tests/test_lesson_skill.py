@@ -219,3 +219,24 @@ def test_diff_lists_deleted_files(repo):
     sh(repo, "git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "drop readme")
     code, out = run("scan", "--diff", "main")
     assert code == 0 and "Deleted" in out and "README.md" in out.split("Deleted")[1]
+
+
+def test_secret_folders_are_off_limits(repo):
+    (repo / "secrets").mkdir()
+    (repo / "secrets" / "production.yaml").write_text("db_password: hunter2\n")
+    (repo / "credentials").mkdir()
+    (repo / "credentials" / "config.json").write_text("{}\n")
+    files, no = lesson.allowed_files(repo)
+    assert no["secrets/production.yaml"] == "may hold secrets" and no["credentials/config.json"] == "may hold secrets"
+
+
+@pytest.mark.parametrize("patch,expect", [
+    ({"source": {"path": "src/auth.py", "start_line": "38-51", "end_line": 51}}, "must be a whole number"),
+    ({"source": "src/auth.py"}, "source must be an object"),
+    ({"items": ["just text"]}, "items must be objects"),
+])
+def test_bad_drafts_get_a_sentence_not_a_traceback(repo, patch, expect):
+    board = storyboard()
+    board["scenes"][1].update(patch)
+    code, out = run("check", write(repo, board))
+    assert code == 1 and expect in out and "Traceback" not in out

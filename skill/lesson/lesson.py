@@ -51,6 +51,7 @@ DENY = [
     "*.tfvars", "service-account*.json", "*-sa.json", "*.sqlite", "*.sqlite3", "*.db", ".dockercfg",
     "docker-config.json", "kubeconfig", "*.kubeconfig",
 ]
+SECRET_DIRS = ["*secret*", "*credential*", ".ssh", ".aws", ".gnupg", ".kube", ".docker", "private", "keys", "certs", "vault"]
 BINARY = (
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".svg", ".pdf", ".zip", ".gz", ".tar", ".jar", ".woff",
     ".woff2", ".ttf", ".otf", ".mp3", ".mp4", ".mov", ".wav", ".so", ".dylib", ".dll", ".exe", ".bin", ".pyc",
@@ -101,6 +102,9 @@ def blocked(rel: str) -> str | None:
         return "dependency or build folder"
     name = parts[-1].lower()
     if any(fnmatch.fnmatch(name, pat) for pat in DENY):
+        return "may hold secrets"
+    # a folder named for secrets ("secrets/production.yaml", "credentials/config.json")
+    if any(fnmatch.fnmatch(d.lower(), pat) for d in parts[:-1] for pat in SECRET_DIRS):
         return "may hold secrets"
     if name.endswith(BINARY):
         return "not text"
@@ -184,6 +188,21 @@ def keep_out_of_git(root: Path) -> None:
 # ---------------------------------------------------------------- the storyboard
 
 
+def whole(value, where: str) -> int:
+    """A non-negative whole number from the draft, or a sentence saying which field is wrong."""
+    if value is None or value == "":
+        return 0
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise Problem(f"{where} must be a whole number.")
+    try:
+        number = int(str(value).strip())
+    except ValueError:
+        raise Problem(f"{where} must be a whole number, not {value!r}.") from None
+    if number < 0:
+        raise Problem(f"{where} can't be negative.")
+    return number
+
+
 def normalize(raw: dict) -> dict:
     """Validate the shape and fill the fields Claude may leave out."""
     if not isinstance(raw, dict):
@@ -203,7 +222,11 @@ def normalize(raw: dict) -> dict:
         items = s.get("items") or []
         if not isinstance(items, list) or len(items) > MAX_ITEMS:
             raise Problem(f"Scene {n} can have at most {MAX_ITEMS} items.")
+        if any(not isinstance(it, dict) for it in items):
+            raise Problem(f"Scene {n}'s items must be objects with text, detail, at and line.")
         src = s.get("source") or {}
+        if not isinstance(src, dict):
+            raise Problem(f"Scene {n}'s source must be an object with path, start_line and end_line.")
         out_scenes.append({
             "id": str(s.get("id") or f"s{n}"),
             "layout": layout,
@@ -211,13 +234,13 @@ def normalize(raw: dict) -> dict:
             "subheading": str(s.get("subheading") or ""),
             "items": [
                 {"text": str(it.get("text") or ""), "detail": str(it.get("detail") or ""),
-                 "at": max(0, int(it.get("at") or 0)), "line": max(0, int(it.get("line") or 0))}
-                for it in items if isinstance(it, dict)
+                 "at": whole(it.get("at"), f"Scene {n}, item {k}'s at"), "line": whole(it.get("line"), f"Scene {n}, item {k}'s line")}
+                for k, it in enumerate(items, 1)
             ],
             "code": "",  # always filled from the file below, never taken from the draft
             "source": {"path": clean_path(str(src.get("path") or "")),
-                       "start_line": max(0, int(src.get("start_line") or 0)),
-                       "end_line": max(0, int(src.get("end_line") or 0))},
+                       "start_line": whole(src.get("start_line"), f"Scene {n}'s source.start_line"),
+                       "end_line": whole(src.get("end_line"), f"Scene {n}'s source.end_line")},
             "narration": str(s.get("narration") or ""),
         })
         if not out_scenes[-1]["narration"].strip():
