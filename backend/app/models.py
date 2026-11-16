@@ -83,6 +83,7 @@ class Usage(SQLModel, table=True):
     output_tokens: int = 0
     cache_write_tokens: int = 0
     cache_read_tokens: int = 0
+    cost_usd: float | None = None  # Claude's price for this write or edit, summed per request
     characters: int = 0
     ms: int = 0
     ok: bool = True

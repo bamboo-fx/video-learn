@@ -293,7 +293,10 @@ def settle_calls(session: Session, usage_id: int, calls: list[llm.Call], error: 
     the ones that failed: they cost money too. The reservation is one row, so a repo lesson
     that took 30 requests still counts as one lesson."""
     calls = calls or []
+    # priced per request before summing: a fallback can answer with a different model
+    costs = [llm.cost_usd(c.model, c.input_tokens, c.output_tokens, c.cache_write_tokens, c.cache_read_tokens) for c in calls]
     limits.settle(session, usage_id, model=calls[-1].model if calls else llm.model(), ok=not error, error=error,
+                  cost_usd=round(sum(c for c in costs if c is not None), 4) if calls and None not in costs else None,
                   requests=len(calls), input_tokens=sum(c.input_tokens for c in calls),
                   output_tokens=sum(c.output_tokens for c in calls),
                   cache_write_tokens=sum(c.cache_write_tokens for c in calls),
@@ -346,13 +349,17 @@ def fetch_snapshot(session: Session, repo: str, ref: str = "") -> github.Snapsho
     """The repository at its current commit: from storage when that commit was read before
     (one small API call to learn the commit), otherwise downloaded."""
     owner, name = repo.split("/", 1)
-    sha = github.head_sha(owner, name, ref or None)
+    # settle which part of a tree/blob path is the branch first, so the cache lookup and the
+    # download ask about the same ref ("main", not "main/app.py")
+    branch = github.resolve_ref(owner, name, ref or None)
+    sha = github.head_sha(owner, name, branch)
     if sha:
         row = session.exec(select(RepoSnapshot).where(col(RepoSnapshot.sha) == sha, func.lower(RepoSnapshot.owner) == owner.lower(),
                                                       func.lower(RepoSnapshot.repo) == name.lower())).first()
         if row and (snap := load_snapshot(session, row.key)):
             return snap
-    snap = github.download(owner, name, ref or None)
+    session.close()  # no database connection held while GitHub sends the archive
+    snap = github.download(owner, name, branch)
     if not session.get(RepoSnapshot, snap.key):
         session.add(RepoSnapshot(key=snap.key, owner=snap.owner, repo=snap.repo, sha=snap.sha, ref=snap.ref,
                                  description=snap.description, file_count=len(snap.files), files=snap.pack()))
@@ -360,6 +367,7 @@ def fetch_snapshot(session: Session, repo: str, ref: str = "") -> github.Snapsho
             session.commit()
         except IntegrityError:
             session.rollback()  # another request stored the same commit first
+    session.close()
     return remember(snap)
 
 
@@ -609,7 +617,7 @@ def project_usage(project_id: str, session: SessionDep, owner: OwnerDep):
     calls = []
     for r in rows:
         row = r.model_dump(mode="json")
-        if r.provider == "anthropic":
+        if r.provider == "anthropic" and r.cost_usd is None:
             row["cost_usd"] = llm.cost_usd(r.model, r.input_tokens, r.output_tokens, r.cache_write_tokens or 0, r.cache_read_tokens or 0)
         elif r.provider == "elevenlabs":
             row["credits"] = r.characters  # about one credit per character on eleven_multilingual_v2
