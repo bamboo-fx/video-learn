@@ -65,7 +65,8 @@ class Storyboard(Strict):
 
 # ---------------------------------------------------------------- narration timing
 
-_SENTENCE = re.compile(r"[^.!?]+(?:[.!?]+[\"')\]]*|$)")
+# A sentence ends at . ! or ? followed by a space or the end, so "Node.js" and "3.14" stay whole.
+_SENTENCE = re.compile(r"\S.*?(?:[.!?]+[\"')\]]*(?=\s|$)|$)", re.S)
 
 
 def sentences(text: str) -> list[tuple[int, int]]:
