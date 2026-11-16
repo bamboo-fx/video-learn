@@ -294,6 +294,19 @@ def test_progress_is_a_heartbeat(client):
     assert after["status"] == "writing" and after["progress"][-1] == "Reading app.py"
 
 
+
+def test_a_long_write_keeps_every_step(client):
+    """The waiting screen counts files and searches from these lines, so none may drop off."""
+    from app.main import progress_writer
+
+    owner = {"X-Owner": "long-trace-owner-0123456789"}
+    p = client.post("/api/projects", json={"topic": "Long trace", "repo": "octo/tiny"}, headers=owner).json()
+    write = progress_writer(p["id"])
+    for i in range(60):
+        write(f"Reading file{i}.py")
+    progress = client.get(f"/api/projects/{p['id']}", headers=owner).json()["progress"]
+    assert len(progress) == 60 and progress[0] == "Reading file0.py"
+
 def test_a_pathological_search_stops_instead_of_hanging(monkeypatch):
     import time
 

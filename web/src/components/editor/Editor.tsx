@@ -18,6 +18,7 @@ import { toast } from "sonner"
 import { Logo } from "@/components/common/bits"
 import { Stage } from "@/components/stage/Stage"
 import { Button } from "@/components/ui/button"
+import { TextShimmer } from "@/components/ui/text-shimmer"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -155,7 +156,7 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
       {banner}
       {host.locked ? (
         <div role="status" className="flex items-center gap-2 border-b border-border bg-ember-soft/40 px-4 py-2 text-xs text-muted-foreground">
-          <Loader2 className="size-3.5 animate-spin text-ember motion-reduce:animate-none" aria-hidden /> {host.locked}
+          <Loader2 className="size-3.5 shrink-0 animate-spin text-ember motion-reduce:animate-none" aria-hidden /> <TextShimmer duration={2.4}>{host.locked}</TextShimmer>
         </div>
       ) : null}
 
