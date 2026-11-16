@@ -2,8 +2,9 @@
 
 import os
 import pathlib
+import threading
 import re
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -233,6 +234,8 @@ class StoryboardIn(BaseModel):
 @app.put("/api/projects/{project_id}/storyboard")
 def save_storyboard(project_id: str, body: StoryboardIn, session: SessionDep, owner: OwnerDep):
     project = owned_project(session, project_id, owner)
+    if project.status == "writing":
+        raise ApiError(409, "being_written", "This lesson is being written. Your changes can be saved once it's done.")
     try:
         board = normalize(Storyboard.model_validate(body.storyboard))
     except ValidationError as exc:
@@ -257,14 +260,13 @@ def delete_project(project_id: str, session: SessionDep, owner: OwnerDep):
     session.commit()
 
 
-def log_calls(session: Session, project_id: str, owner: str, kind: str, calls: list[llm.Call], error: str = "") -> None:
-    """Every Claude request is logged, including the ones that failed: they cost money too."""
-    for k, call in enumerate(calls or [llm.Call(llm.model())]):
-        failed = bool(error) and k == len(calls or [None]) - 1
-        session.add(Usage(project_id=project_id, owner=owner, kind=kind, provider="anthropic", model=call.model,
-                          input_tokens=call.input_tokens, output_tokens=call.output_tokens, ms=call.ms,
-                          ok=not failed, error=error if failed else ""))
-    session.commit()
+def settle_calls(session: Session, usage_id: int, calls: list[llm.Call], error: str = "") -> None:
+    """Fill in a reserved write or edit with every Claude request it made, summed, including
+    the ones that failed: they cost money too."""
+    calls = calls or []
+    limits.settle(session, usage_id, model=calls[-1].model if calls else llm.model(), ok=not error, error=error,
+                  input_tokens=sum(c.input_tokens for c in calls), output_tokens=sum(c.output_tokens for c in calls),
+                  ms=sum(c.ms for c in calls))
 
 
 def set_project(session: Session, project_id: str, **fields: Any) -> Project:
@@ -287,10 +289,14 @@ def write_project(project_id: str, session: SessionDep, owner: OwnerDep):
     """Claude writes the lesson. Runs on the person's click, never on page load."""
     project = owned_project(session, project_id, owner)
     expire_stale_write(session, project)
-    if why := limits.check(session, owner, "write"):
+    if project.status == "writing":
+        raise ApiError(409, "already_writing", "This lesson is already being written.")
+    try:
+        usage_id = limits.reserve(session, owner, project_id, "write", "anthropic", llm.model())
+    except limits.LimitError as exc:
         if project.status != "ready":
-            set_project(session, project_id, status="failed", error=why)
-        raise ApiError(429, "limit", why)
+            set_project(session, project_id, status="failed", error=exc.message)
+        raise ApiError(429, "limit", exc.message) from exc
 
     # Claim the lesson in one statement, so two clicks can't start two paid writes.
     claimed = session.exec(
@@ -300,20 +306,32 @@ def write_project(project_id: str, session: SessionDep, owner: OwnerDep):
     ).rowcount
     session.commit()
     if not claimed:
+        limits.settle(session, usage_id, ok=False, error="already_writing")
         raise ApiError(409, "already_writing", "This lesson is already being written.")
 
+    project = session.get(Project, project_id)
     topic, notes, level, minutes = project.topic, project.notes, project.level, project.minutes
+    voice_id = project.voice_id or tts.voice_id()
     session.close()  # don't hold a database connection while Claude writes
     try:
         board, call = llm.write_storyboard(topic, notes, level, minutes)
     except llm.AIError as exc:
-        log_calls(session, project_id, owner, "write", exc.calls, error=exc.code)
+        settle_calls(session, usage_id, exc.calls, error=exc.code)
         set_project(session, project_id, status="failed", error=exc.message)
         raise ApiError(exc.status, exc.code, exc.message) from exc
 
-    log_calls(session, project_id, owner, "write", [call])
-    project = set_project(session, project_id, storyboard=board.model_dump(), title=board.title,
-                          voice_id=project.voice_id or tts.voice_id(), status="ready", error="")
+    settle_calls(session, usage_id, [call])
+    # Saved only if the lesson is still the one being written (a hand save is refused while
+    # it's writing, so nothing newer can be overwritten).
+    saved = session.exec(
+        update(Project)
+        .where(col(Project.id) == project_id, col(Project.status) == "writing")
+        .values(storyboard=board.model_dump(), title=board.title, voice_id=voice_id, status="ready", error="", updated_at=now())
+    ).rowcount
+    session.commit()
+    if not saved:
+        raise ApiError(409, "changed_meanwhile", "The lesson changed while Claude was writing it, so this version wasn't saved.")
+    project = session.get(Project, project_id)
     return project_out(project, owner, voices_for(session, project))
 
 
@@ -335,29 +353,37 @@ def voice_scene(project_id: str, scene_id: str, session: SessionDep, owner: Owne
 
     voice, model = project.voice_id or tts.voice_id(), tts.model_id()
     h = tts.clip_hash(voice, model, narration)
-    if clip := session.get(Clip, h):
-        return clip_out(clip)
-    if why := limits.check(session, owner, "voice", characters=len(narration)):
-        raise ApiError(429, "limit", why)
-
     prev_text = scenes[i - 1]["narration"] if i > 0 else ""
     next_text = scenes[i + 1]["narration"] if i + 1 < len(scenes) else ""
-    session.close()  # don't hold a database connection while ElevenLabs speaks
-    try:
-        spoken = tts.speak(narration, voice, model, prev_text, next_text)
-    except tts.VoiceError as exc:
-        session.add(Usage(project_id=project_id, owner=owner, kind="voice", provider="elevenlabs", model=model, ok=False, error=exc.code))
-        session.commit()
-        raise ApiError(exc.status, exc.code, exc.message) from exc
 
-    session.add(Usage(project_id=project_id, owner=owner, kind="voice", provider="elevenlabs", model=model, characters=len(narration), ms=spoken.ms))
-    session.commit()
-    clip = Clip(hash=h, voice_id=voice, model_id=model, text=narration, audio=spoken.audio, words=spoken.words, duration=spoken.duration)
+    # One request per narration pays ElevenLabs; another asking for the same words waits
+    # here and then finds the clip the first one stored.
+    with clip_lock(h):
+        session.expire_all()
+        if clip := session.get(Clip, h):
+            return clip_out(clip)
+        try:
+            usage_id = limits.reserve(session, owner, project_id, "voice", "elevenlabs", model, characters=len(narration))
+        except limits.LimitError as exc:
+            raise ApiError(429, "limit", exc.message) from exc
+        session.close()  # don't hold a database connection while ElevenLabs speaks
+        try:
+            spoken = tts.speak(narration, voice, model, prev_text, next_text)
+        except tts.VoiceError as exc:
+            limits.settle(session, usage_id, ok=False, characters=0, error=exc.code)
+            raise ApiError(exc.status, exc.code, exc.message) from exc
+        limits.settle(session, usage_id, ms=spoken.ms)
+        return store_clip(session, Clip(hash=h, voice_id=voice, model_id=model, text=narration, audio=spoken.audio,
+                                        words=spoken.words, duration=spoken.duration))
+
+
+def store_clip(session: Session, clip: Clip) -> dict[str, Any]:
+    h = clip.hash
     session.add(clip)
     try:
         session.commit()
     except IntegrityError:
-        # The same narration was voiced by another request a moment ago: use that one.
+        # Another server stored the same narration a moment ago: use that one.
         session.rollback()
         clip = session.get(Clip, h)
         if not clip:
@@ -365,6 +391,21 @@ def voice_scene(project_id: str, scene_id: str, session: SessionDep, owner: Owne
     else:
         session.refresh(clip)
     return clip_out(clip)
+
+
+_clip_locks: dict[str, threading.Lock] = {}
+_clip_locks_guard = threading.Lock()
+
+
+@contextmanager
+def clip_lock(h: str):
+    with _clip_locks_guard:
+        lock = _clip_locks.setdefault(h, threading.Lock())
+    with lock:
+        yield
+    with _clip_locks_guard:
+        if not lock.locked():
+            _clip_locks.pop(h, None)
 
 
 @app.api_route("/api/clips/{name}", methods=["GET", "HEAD"])
@@ -406,23 +447,34 @@ def edit_project(project_id: str, body: EditIn, session: SessionDep, owner: Owne
     project = owned_project(session, project_id, owner)
     if not project.storyboard:
         raise ApiError(409, "not_written", "There's no lesson to edit yet.")
-    if why := limits.check(session, owner, "edit"):
-        raise ApiError(429, "limit", why)
+    if project.status == "writing":
+        raise ApiError(409, "being_written", "This lesson is being written. Edit it once it's done.")
     board = Storyboard.model_validate(project.storyboard)
     started_from = project.updated_at
     notes = project.notes
+    try:
+        usage_id = limits.reserve(session, owner, project_id, "edit", "anthropic", llm.model())
+    except limits.LimitError as exc:
+        raise ApiError(429, "limit", exc.message) from exc
     session.close()  # don't hold a database connection while Claude edits
     try:
         outcome = llm.edit_storyboard(board, body.instruction.strip(), body.scene_id, notes)
     except llm.AIError as exc:
-        log_calls(session, project_id, owner, "edit", exc.calls, error=exc.code)
+        settle_calls(session, usage_id, exc.calls, error=exc.code)
         raise ApiError(exc.status, exc.code, exc.message) from exc
-    log_calls(session, project_id, owner, "edit", outcome.calls)
+    settle_calls(session, usage_id, outcome.calls)
 
-    current = session.get(Project, project_id)
-    if current and aware(current.updated_at) != aware(started_from):
+    # Applied only if nothing was saved since the edit started, checked in the same UPDATE,
+    # so two edits (or an edit and a hand save) can't silently erase each other.
+    applied = session.exec(
+        update(Project)
+        .where(col(Project.id) == project_id, col(Project.updated_at) == started_from)
+        .values(storyboard=outcome.board.model_dump(), title=outcome.board.title, updated_at=now())
+    ).rowcount
+    session.commit()
+    if not applied:
         raise ApiError(409, "changed_meanwhile", "The lesson changed while Claude was editing it, so the edit wasn't applied. Ask again.")
-    project = set_project(session, project_id, storyboard=outcome.board.model_dump(), title=outcome.board.title)
+    project = session.get(Project, project_id)
     return {"project": project_out(project, owner, voices_for(session, project)), "summary": outcome.summary, "changes": outcome.changes}
 
 
