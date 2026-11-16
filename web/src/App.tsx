@@ -1,3 +1,4 @@
+import { Connect } from "./pages/Connect"
 import { Demo } from "./pages/Demo"
 import { Home } from "./pages/Home"
 import { Lesson } from "./pages/Lesson"
@@ -13,6 +14,8 @@ export function App() {
       return <Lesson key={route.id} id={route.id} />
     case "demo":
       return <Demo />
+    case "connect":
+      return <Connect />
     default:
       return <Missing />
   }

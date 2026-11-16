@@ -29,7 +29,13 @@ Final project for ENGR 190BO, AI-Amplified Prototyping (Harvey Mudd College, Fal
 
    Only the lesson and the lines it shows leave your computer, never the repository. The
    link it prints makes the lesson yours in the first browser that opens it.
-3. **The Claude app** (claude.ai): a connector for public repositories (coming next).
+3. **The Claude app** (claude.ai), public repositories: add
+   `https://web-production-77637c10.up.railway.app/mcp` as a custom connector (Settings,
+   Connectors, Add custom connector), then ask Claude to "use Video Learn to make a lesson on
+   github.com/owner/repo". Claude reads the repository through read-only tools and hands back
+   a lesson link. It never asks for your GitHub account, and private repositories can't be read.
+
+Setup steps for both: https://web-production-77637c10.up.railway.app/connect
 
 ## In this repository
 

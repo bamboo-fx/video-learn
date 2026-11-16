@@ -5,11 +5,13 @@ export type Route =
   | { page: "home" }
   | { page: "lesson"; id: string }
   | { page: "demo" }
+  | { page: "connect" }
   | { page: "missing" }
 
 function parse(path: string): Route {
   if (path === "/" || path === "") return { page: "home" }
   if (path === "/demo") return { page: "demo" }
+  if (path === "/connect") return { page: "connect" }
   const m = path.match(/^\/l\/([A-Za-z0-9_-]+)\/?$/)
   if (m) return { page: "lesson", id: m[1] }
   return { page: "missing" }

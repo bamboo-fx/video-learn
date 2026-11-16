@@ -24,7 +24,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, col, select
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import github, grounding, limits, llm, secrets_scan, tts
+from app import connector, github, grounding, limits, llm, secrets_scan, tts
 from app.db import engine, get_session, init_db
 from app.models import Clip, Project, RepoSnapshot, Usage, now
 from app.storyboard import Storyboard, normalize
@@ -33,7 +33,13 @@ from app.storyboard import Storyboard, normalize
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
-    yield
+    # The claude.ai connector at /mcp. Its session manager can only run once, so each start of
+    # the app gets a fresh one (and a fresh /mcp route bound to it).
+    fresh = connector.routes()
+    app.router.routes[:] = [r for r in app.router.routes if getattr(r, "path", None) != "/mcp"]
+    app.router.routes[0:0] = fresh
+    async with connector.server.session_manager.run():
+        yield
 
 
 app = FastAPI(title="Video Learn", lifespan=lifespan)
@@ -713,12 +719,19 @@ def check_lesson_content(board: Storyboard, question: str = "") -> None:
                                f"Scene {i} seems to contain {found}. It wasn't saved; cite different lines or remove it.")
 
 
-def create_imported(session: Session, board: Storyboard, question: str, origin: str, request: Request,
+def public_base(request: Request) -> str:
+    """This site's address as the caller reached it (https behind Railway's proxy)."""
+    base = str(request.base_url).rstrip("/")
+    if request.headers.get("x-forwarded-proto") == "https" and base.startswith("http://"):
+        base = "https://" + base[len("http://"):]
+    return base
+
+
+def create_imported(session: Session, board: Storyboard, question: str, origin: str, who: str, base: str,
                     repo: str = "", repo_sha: str = "") -> dict[str, Any]:
     """Store a finished lesson made by someone's own Claude, owned by nobody until its
     one-time claim link is opened. Costs no AI; voicing waits for the owner to click Voice."""
     check_lesson_content(board, question)
-    who = client_key(request)
     try:
         usage_id = limits.reserve(session, who, "-", "import", "none", origin)
     except limits.LimitError as exc:
@@ -731,9 +744,6 @@ def create_imported(session: Session, board: Storyboard, question: str, origin: 
     session.commit()
     session.refresh(project)
     limits.settle(session, usage_id, project_id=project.id)
-    base = str(request.base_url).rstrip("/")
-    if request.headers.get("x-forwarded-proto") == "https" and base.startswith("http://"):
-        base = "https://" + base[len("http://"):]
     return {"id": project.id, "url": f"{base}/l/{project.id}?claim={token}", "title": board.title}
 
 
@@ -756,7 +766,8 @@ def import_lesson(body: ImportIn, request: Request, session: SessionDep):
     except ValidationError as exc:
         first = exc.errors()[0]
         raise ApiError(422, "invalid_storyboard", f"The lesson isn't valid: {'.'.join(str(p) for p in first['loc'])}: {first['msg']}") from exc
-    return create_imported(session, board, body.question, "local", request, repo=body.repo if body.sha else "", repo_sha=body.sha)
+    return create_imported(session, board, body.question, "local", client_key(request), public_base(request),
+                           repo=body.repo if body.sha else "", repo_sha=body.sha)
 
 
 class ClaimIn(BaseModel):
@@ -807,3 +818,4 @@ def web_app(path: str):
     if index.exists():
         return FileResponse(index, headers={"Cache-Control": "no-cache"})
     return JSONResponse({"error": {"code": "no_web_build", "message": "The web app isn't built yet."}}, status_code=503)
+
