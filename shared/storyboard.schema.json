@@ -1,6 +1,10 @@
 {
   "additionalProperties": false,
   "properties": {
+    "title": {
+      "description": "The lesson's title. At most 8 words.",
+      "type": "string"
+    },
     "summary": {
       "description": "One sentence: what someone will understand after watching.",
       "type": "string"
@@ -84,6 +88,7 @@
     }
   },
   "required": [
+    "title",
     "summary",
     "scenes"
   ],

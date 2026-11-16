@@ -1,5 +1,6 @@
 """The API, and the web app's static files, from one FastAPI service."""
 
+import os
 import pathlib
 import re
 from contextlib import asynccontextmanager
@@ -158,6 +159,12 @@ def project_summary(project: Project) -> dict[str, Any]:
 def health(session: SessionDep):
     session.exec(select(1)).one()
     return {"ok": True}
+
+
+@app.get("/api/config")
+def config():
+    """What this server can do, so the page can say so before anyone clicks."""
+    return {"ai": bool(os.environ.get("ANTHROPIC_API_KEY")), "voice": bool(os.environ.get("ELEVENLABS_API_KEY"))}
 
 
 @app.get("/api/projects")

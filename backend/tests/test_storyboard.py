@@ -78,6 +78,9 @@ def test_strict_schema_is_closed_and_inlined():
                 check(v)
 
     check(schema)
+    assert set(schema["properties"]) == {"title", "summary", "scenes"}
+    scene = schema["properties"]["scenes"]["items"]
+    assert "heading" in scene["properties"] and "narration" in scene["required"]
 
 
 def test_exported_schema_file_is_current():
