@@ -3,10 +3,12 @@ import { Check, Loader2, RotateCcw } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
+import { AgentTrace } from "@/components/common/AgentTrace"
 import { Problem, QuietLoading, Shell } from "@/components/common/bits"
 import { Editor } from "@/components/editor/Editor"
 import type { EditorHost, VoiceState } from "@/components/editor/types"
 import { Button } from "@/components/ui/button"
+import { TextShimmer } from "@/components/ui/text-shimmer"
 import { api, ApiError, type EditResult, type Project, type Storyboard, type Voice } from "@/lib/api"
 import { navigate } from "@/lib/router"
 
@@ -84,27 +86,7 @@ function Writing({ project }: { project: Project }) {
         </p>
         <h1 className="font-serif text-4xl leading-tight text-balance">{project.topic}</h1>
         {project.repo ? (
-          <ol className="mt-10 flex flex-col gap-2.5 font-mono text-[13px]" aria-live="polite">
-            {live.length === 0 ? (
-              <li className="flex items-center gap-3 text-muted-foreground">
-                <Loader2 className="size-4 animate-spin text-ember motion-reduce:animate-none" aria-hidden /> Starting…
-              </li>
-            ) : (
-              live.map((line, i) => {
-                const last = i === live.length - 1
-                return (
-                  <li key={`${i}-${line}`} className="flex items-center gap-3 animate-in duration-300 fade-in">
-                    {last ? (
-                      <Loader2 className="size-4 shrink-0 animate-spin text-ember motion-reduce:animate-none" aria-hidden />
-                    ) : (
-                      <Check className="size-4 shrink-0 text-ok" aria-hidden />
-                    )}
-                    <span className={last ? "truncate text-foreground" : "truncate text-muted-foreground"}>{line}</span>
-                  </li>
-                )
-              })
-            )}
-          </ol>
+          <AgentTrace lines={live} className="mt-10" />
         ) : (
           <ol className="mt-10 flex flex-col gap-3 text-sm">
             {STEPS.map((s, i) => (
@@ -116,14 +98,13 @@ function Writing({ project }: { project: Project }) {
                 ) : (
                   <span className="size-4 rounded-full border border-border" aria-hidden />
                 )}
-                <span className={i <= step ? "text-foreground" : "text-muted-foreground"}>{s}</span>
+                {i === step ? <TextShimmer>{s}</TextShimmer> : <span className={i < step ? "text-foreground" : "text-muted-foreground"}>{s}</span>}
               </li>
             ))}
           </ol>
         )}
         <p className="mt-10 text-xs text-muted-foreground">
-          {project.repo ? "Reading the code takes a minute or two." : "This usually takes under a minute."} You can leave this page; the lesson keeps
-          going.
+          {project.repo ? "Takes a minute or two." : "Takes under a minute."} You can leave; it keeps going.
         </p>
       </div>
     </Shell>

@@ -187,7 +187,7 @@ def project_out(project: Project, owner: str | None, voices: dict[str, Any] | No
         "repo": project.repo or "",
         "repo_ref": project.repo_ref or "",
         "repo_sha": project.repo_sha or "",
-        "progress": (project.progress or [])[-12:],
+        "progress": (project.progress or [])[-40:],
         "voices": voices or {},
         "is_owner": owner is not None and owner == project.owner,
         "created_at": iso(project.created_at),
