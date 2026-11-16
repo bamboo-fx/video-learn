@@ -26,6 +26,7 @@
               "definition",
               "example",
               "code",
+              "flow",
               "summary"
             ],
             "type": "string"
@@ -53,20 +54,48 @@
                 "at": {
                   "description": "Index of the narration sentence during which this item appears.",
                   "type": "integer"
+                },
+                "line": {
+                  "description": "On a code scene, the file line this item is about (highlighted when it appears); 0 otherwise.",
+                  "type": "integer"
                 }
               },
               "required": [
                 "text",
                 "detail",
-                "at"
+                "at",
+                "line"
               ],
               "type": "object"
             },
             "type": "array"
           },
           "code": {
-            "description": "Code for the code layout; an empty string otherwise.",
+            "description": "In a repository lesson leave empty (it's filled from `source`); otherwise the code to show on a code scene, or an empty string.",
             "type": "string"
+          },
+          "source": {
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "description": "A file path in the repository, or an empty string when the scene has no source.",
+                "type": "string"
+              },
+              "start_line": {
+                "description": "First line, counting from 1; 0 when there's no source.",
+                "type": "integer"
+              },
+              "end_line": {
+                "description": "Last line, inclusive; 0 when there's no source.",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "start_line",
+              "end_line"
+            ],
+            "type": "object"
           },
           "narration": {
             "description": "What the voice says over this scene, written for the ear: 2 to 5 short sentences, plain words, numbers and symbols written the way they are said.",
@@ -80,6 +109,7 @@
           "subheading",
           "items",
           "code",
+          "source",
           "narration"
         ],
         "type": "object"

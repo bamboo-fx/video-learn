@@ -13,15 +13,17 @@ from datetime import timedelta, timezone
 
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from collections import OrderedDict
+
 from pydantic import BaseModel, Field, StringConstraints, ValidationError
-from sqlalchemy import update
+from sqlalchemy import func, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, col, select
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import limits, llm, tts
-from app.db import get_session, init_db
-from app.models import Clip, Project, Usage, now
+from app import github, grounding, limits, llm, tts
+from app.db import engine, get_session, init_db
+from app.models import Clip, Project, RepoSnapshot, Usage, now
 from app.storyboard import Storyboard, normalize
 
 
@@ -112,8 +114,10 @@ def owned_project(session: Session, project_id: str, owner: str) -> Project:
 
 
 class ProjectIn(BaseModel):
-    # stripped before the length check, so "   " isn't a topic
+    # what they want to learn (for a repository, their question about it), stripped before
+    # the length check so "   " isn't a topic
     topic: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=200)]
+    repo: str = Field(default="", max_length=300, description="A public GitHub repository link, or empty for a topic lesson.")
     notes: str = Field(default="", max_length=12000)
     level: str = Field(default="intro", pattern="^(intro|intermediate|advanced)$")
     minutes: int = Field(default=3, ge=1, le=5)
@@ -180,6 +184,10 @@ def project_out(project: Project, owner: str | None, voices: dict[str, Any] | No
         "status": project.status,
         "error": project.error,
         "storyboard": project.storyboard,
+        "repo": project.repo or "",
+        "repo_ref": project.repo_ref or "",
+        "repo_sha": project.repo_sha or "",
+        "progress": (project.progress or [])[-12:],
         "voices": voices or {},
         "is_owner": owner is not None and owner == project.owner,
         "created_at": iso(project.created_at),
@@ -193,6 +201,7 @@ def project_summary(project: Project) -> dict[str, Any]:
         "id": project.id,
         "title": project.title or project.topic,
         "topic": project.topic,
+        "repo": project.repo or "",
         "status": project.status,
         "scenes": len(scenes),
         "updated_at": iso(project.updated_at),
@@ -222,7 +231,15 @@ def list_projects(session: SessionDep, owner: OwnerDep):
 
 @app.post("/api/projects", status_code=201)
 def create_project(body: ProjectIn, session: SessionDep, owner: OwnerDep):
-    project = Project(owner=owner, topic=body.topic.strip(), notes=body.notes.strip(), level=body.level, minutes=body.minutes)
+    repo = ""
+    if body.repo.strip():
+        try:
+            o, r, ref = github.parse_repo(body.repo)
+        except github.RepoError as exc:
+            raise ApiError(exc.status, exc.code, exc.message) from exc
+        repo = f"{o}/{r}"
+    project = Project(owner=owner, topic=body.topic.strip(), notes=body.notes.strip(), level=body.level, minutes=body.minutes,
+                      repo=repo, repo_ref=(ref or "") if repo else "")
     session.add(project)
     session.commit()
     session.refresh(project)
@@ -247,6 +264,8 @@ def save_storyboard(project_id: str, body: StoryboardIn, session: SessionDep, ow
         raise ApiError(409, "being_written", "This lesson is being written. Your changes can be saved once it's done.")
     try:
         board = normalize(Storyboard.model_validate(body.storyboard))
+        if project.repo and project.repo_sha and (snap := load_snapshot(session, f"{project.repo}@{project.repo_sha}")):
+            board = grounding.ground(board, snap, hand=True)  # code on screen always comes from the file
     except ValidationError as exc:
         first = exc.errors()[0]
         where = ".".join(str(p) for p in first["loc"])
@@ -271,11 +290,17 @@ def delete_project(project_id: str, session: SessionDep, owner: OwnerDep):
 
 def settle_calls(session: Session, usage_id: int, calls: list[llm.Call], error: str = "") -> None:
     """Fill in a reserved write or edit with every Claude request it made, summed, including
-    the ones that failed: they cost money too."""
+    the ones that failed: they cost money too. The reservation is one row, so a repo lesson
+    that took 30 requests still counts as one lesson."""
     calls = calls or []
+    # priced per request before summing: a fallback can answer with a different model
+    costs = [llm.cost_usd(c.model, c.input_tokens, c.output_tokens, c.cache_write_tokens, c.cache_read_tokens) for c in calls]
     limits.settle(session, usage_id, model=calls[-1].model if calls else llm.model(), ok=not error, error=error,
-                  input_tokens=sum(c.input_tokens for c in calls), output_tokens=sum(c.output_tokens for c in calls),
-                  ms=sum(c.ms for c in calls))
+                  cost_usd=round(sum(c for c in costs if c is not None), 4) if calls and None not in costs else None,
+                  requests=len(calls), input_tokens=sum(c.input_tokens for c in calls),
+                  output_tokens=sum(c.output_tokens for c in calls),
+                  cache_write_tokens=sum(c.cache_write_tokens for c in calls),
+                  cache_read_tokens=sum(c.cache_read_tokens for c in calls), ms=sum(c.ms for c in calls))
 
 
 def set_project(session: Session, project_id: str, **fields: Any) -> Project:
@@ -291,6 +316,74 @@ def set_project(session: Session, project_id: str, **fields: Any) -> Project:
     session.commit()
     session.refresh(project)
     return project
+
+
+_snapshots: "OrderedDict[str, github.Snapshot]" = OrderedDict()
+_snapshots_lock = threading.Lock()  # routes run in a thread pool
+SNAPSHOT_CACHE = 8  # each is up to 8 MB of text
+
+
+def remember(snap: github.Snapshot) -> github.Snapshot:
+    with _snapshots_lock:
+        _snapshots[snap.key] = snap
+        _snapshots.move_to_end(snap.key)
+        while len(_snapshots) > SNAPSHOT_CACHE:
+            _snapshots.popitem(last=False)
+    return snap
+
+
+def load_snapshot(session: Session, key: str) -> github.Snapshot | None:
+    """A stored repository, from memory if this server read it recently."""
+    with _snapshots_lock:
+        snap = _snapshots.get(key)
+        if snap is not None:
+            _snapshots.move_to_end(key)
+            return snap
+    row = session.get(RepoSnapshot, key)
+    if not row:
+        return None
+    return remember(github.Snapshot.unpack(row.owner, row.repo, row.sha, row.ref, row.description, row.files))
+
+
+def fetch_snapshot(session: Session, repo: str, ref: str = "") -> github.Snapshot:
+    """The repository at its current commit: from storage when that commit was read before
+    (one small API call to learn the commit), otherwise downloaded."""
+    owner, name = repo.split("/", 1)
+    # settle which part of a tree/blob path is the branch first, so the cache lookup and the
+    # download ask about the same ref ("main", not "main/app.py")
+    branch = github.resolve_ref(owner, name, ref or None)
+    sha = github.head_sha(owner, name, branch)
+    if sha:
+        row = session.exec(select(RepoSnapshot).where(col(RepoSnapshot.sha) == sha, func.lower(RepoSnapshot.owner) == owner.lower(),
+                                                      func.lower(RepoSnapshot.repo) == name.lower())).first()
+        if row and (snap := load_snapshot(session, row.key)):
+            return snap
+    session.close()  # no database connection held while GitHub sends the archive
+    snap = github.download(owner, name, branch)
+    if not session.get(RepoSnapshot, snap.key):
+        session.add(RepoSnapshot(key=snap.key, owner=snap.owner, repo=snap.repo, sha=snap.sha, ref=snap.ref,
+                                 description=snap.description, file_count=len(snap.files), files=snap.pack()))
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()  # another request stored the same commit first
+    session.close()
+    return remember(snap)
+
+
+def progress_writer(project_id: str):
+    """Records what Claude is doing, in its own short transaction, for the waiting screen."""
+
+    def write(text: str) -> None:
+        with Session(engine) as s:
+            p = s.get(Project, project_id)
+            if p:
+                p.progress = [*(p.progress or [])[-30:], text]
+                p.updated_at = now()  # a heartbeat: a write that's still reading isn't stale
+                s.add(p)
+                s.commit()
+
+    return write
 
 
 @app.post("/api/projects/{project_id}/write")
@@ -319,23 +412,50 @@ def write_project(project_id: str, session: SessionDep, owner: OwnerDep):
         raise ApiError(409, "already_writing", "This lesson is already being written.")
 
     project = session.get(Project, project_id)
-    topic, notes, level, minutes = project.topic, project.notes, project.level, project.minutes
+    topic, notes, level, minutes, repo, ref = project.topic, project.notes, project.level, project.minutes, project.repo, project.repo_ref or ""
     voice_id = project.voice_id or tts.voice_id()
-    session.close()  # don't hold a database connection while Claude writes
+    session.close()  # don't hold a database connection while GitHub or Claude works
+    progress = progress_writer(project_id)
+    repo_sha, repo_name = "", repo
     try:
-        board, call = llm.write_storyboard(topic, notes, level, minutes)
+        if repo:
+            set_project(session, project_id, progress=[f"Downloading github.com/{repo}"])
+            session.close()
+            snap = fetch_snapshot(session, repo, ref)
+            repo_sha, repo_name = snap.sha, snap.name
+            # The commit is saved with the new storyboard only when the write succeeds, so a
+            # failed rewrite never points the old lesson at different code.
+            set_project(session, project_id, progress=[f"Read {len(snap.files)} files from github.com/{snap.name}"])
+            session.close()
+            board, calls = llm.write_repo_lesson(snap, topic, level, minutes, progress)
+        else:
+            board, call = llm.write_storyboard(topic, notes, level, minutes)
+            calls = [call]
+    except github.RepoError as exc:
+        settle_calls(session, usage_id, [], error=exc.code)  # cost nothing: the allowance comes back
+        set_project(session, project_id, status="failed", error=exc.message)
+        raise ApiError(exc.status, exc.code, exc.message) from exc
     except llm.AIError as exc:
         settle_calls(session, usage_id, exc.calls, error=exc.code)
         set_project(session, project_id, status="failed", error=exc.message)
         raise ApiError(exc.status, exc.code, exc.message) from exc
+    except Exception as exc:
+        # anything unplanned still ends the write, so the page doesn't wait ten minutes
+        session.rollback()
+        settle_calls(session, usage_id, [], error="write_failed")
+        set_project(session, project_id, status="failed", error="Something went wrong while writing. Try again.")
+        raise ApiError(500, "write_failed", "Something went wrong while writing. Try again.") from exc
 
-    settle_calls(session, usage_id, [call])
+    settle_calls(session, usage_id, calls)
     # Saved only if the lesson is still the one being written (a hand save is refused while
-    # it's writing, so nothing newer can be overwritten).
+    # it's writing, so nothing newer can be overwritten), and the commit only together with
+    # the storyboard written from it.
+    values: dict[str, Any] = {"storyboard": board.model_dump(), "title": board.title, "voice_id": voice_id,
+                              "status": "ready", "error": "", "updated_at": now()}
+    if repo_sha:
+        values.update(repo=repo_name, repo_sha=repo_sha)
     saved = session.exec(
-        update(Project)
-        .where(col(Project.id) == project_id, col(Project.status) == "writing")
-        .values(storyboard=board.model_dump(), title=board.title, voice_id=voice_id, status="ready", error="", updated_at=now())
+        update(Project).where(col(Project.id) == project_id, col(Project.status) == "writing").values(**values)
     ).rowcount
     session.commit()
     if not saved:
@@ -462,13 +582,14 @@ def edit_project(project_id: str, body: EditIn, session: SessionDep, owner: Owne
     board = Storyboard.model_validate(project.storyboard)
     started_from = project.updated_at
     notes = project.notes
+    snap = load_snapshot(session, f"{project.repo}@{project.repo_sha}") if project.repo and project.repo_sha else None
     try:
         usage_id = limits.reserve(session, owner, project_id, "edit", "anthropic", llm.model())
     except limits.LimitError as exc:
         raise ApiError(429, "limit", exc.message) from exc
     session.close()  # don't hold a database connection while Claude edits
     try:
-        outcome = llm.edit_storyboard(board, body.instruction.strip(), body.scene_id, notes)
+        outcome = llm.edit_storyboard(board, body.instruction.strip(), body.scene_id, notes, snap=snap)
     except llm.AIError as exc:
         settle_calls(session, usage_id, exc.calls, error=exc.code)
         raise ApiError(exc.status, exc.code, exc.message) from exc
@@ -493,7 +614,15 @@ def project_usage(project_id: str, session: SessionDep, owner: OwnerDep):
     """What this lesson has cost so far, in tokens and characters (for the cost analysis)."""
     project = owned_project(session, project_id, owner)
     rows = session.exec(select(Usage).where(Usage.project_id == project.id).order_by(Usage.created_at)).all()
-    return {"calls": [r.model_dump(mode="json") for r in rows]}
+    calls = []
+    for r in rows:
+        row = r.model_dump(mode="json")
+        if r.provider == "anthropic" and r.cost_usd is None:
+            row["cost_usd"] = llm.cost_usd(r.model, r.input_tokens, r.output_tokens, r.cache_write_tokens or 0, r.cache_read_tokens or 0)
+        elif r.provider == "elevenlabs":
+            row["credits"] = r.characters  # about one credit per character on eleven_multilingual_v2
+        calls.append(row)
+    return {"calls": calls}
 
 
 @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])

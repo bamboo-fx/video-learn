@@ -16,6 +16,9 @@ from typing import Any
 import anthropic
 from pydantic import ValidationError
 
+from collections.abc import Callable
+
+from app import github, grounding
 from app.storyboard import LAYOUTS, MAX_ITEMS, MAX_SCENES, Scene, Storyboard, next_scene_id, normalize, strict_json_schema
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
@@ -34,9 +37,11 @@ class AIError(Exception):
 @dataclass
 class Call:
     model: str
-    input_tokens: int = 0
+    input_tokens: int = 0  # uncached input only; the cached parts are counted below
     output_tokens: int = 0
     ms: int = 0
+    cache_write_tokens: int = 0
+    cache_read_tokens: int = 0
 
 
 def model() -> str:
@@ -58,6 +63,7 @@ def _call(**kwargs: Any) -> tuple[Any, Call]:
             model=model(),
             betas=[FALLBACK_BETA],
             fallbacks="default",
+            cache_control={"type": "ephemeral"},  # tool loops resend the same prefix every turn
             **kwargs,
         )
     except AIError:
@@ -79,6 +85,8 @@ def _call(**kwargs: Any) -> tuple[Any, Call]:
         model=getattr(resp, "model", None) or model(),
         input_tokens=resp.usage.input_tokens or 0,
         output_tokens=resp.usage.output_tokens or 0,
+        cache_write_tokens=getattr(resp.usage, "cache_creation_input_tokens", 0) or 0,
+        cache_read_tokens=getattr(resp.usage, "cache_read_input_tokens", 0) or 0,
         ms=int((time.monotonic() - started) * 1000),
     )
     if resp.stop_reason in ("refusal", "max_tokens"):
@@ -291,7 +299,8 @@ def _apply(board: Storyboard, name: str, args: dict[str, Any], changes: list[dic
     return Storyboard(title=board.title, summary=board.summary, scenes=scenes), result
 
 
-def edit_storyboard(board: Storyboard, instruction: str, scene_id: str | None, notes: str = "") -> EditOutcome:
+def edit_storyboard(board: Storyboard, instruction: str, scene_id: str | None, notes: str = "",
+                    snap: github.Snapshot | None = None, progress: Progress | None = None) -> EditOutcome:
     focus = ""
     if scene_id:
         idx = next((i for i, s in enumerate(board.scenes) if s.id == scene_id), None)
@@ -308,25 +317,40 @@ def edit_storyboard(board: Storyboard, instruction: str, scene_id: str | None, n
     calls: list[Call] = []
     current = board
 
+    if snap is not None:
+        messages[0]["content"] = f"The lesson teaches github.com/{snap.name}. You can read the code with list_files, read_file and search; cite `source` for any scene you add or change, and leave `code` empty (it's filled from the file).\n\n" + messages[0]["content"]
     try:
-        return _edit_loop(current, messages, changes, calls)
+        outcome = _edit_loop(current, messages, changes, calls, snap, progress or (lambda _: None))
     except AIError as exc:
         exc.calls = calls + exc.calls  # what was paid for before the failure
         raise
+    if snap is not None:
+        outcome.board = grounding.ground(outcome.board, snap)
+    return outcome
 
 
-def _edit_loop(current: Storyboard, messages: list[dict[str, Any]], changes: list[dict[str, str]], calls: list[Call]) -> EditOutcome:
-    for _ in range(8):
+def _edit_loop(current: Storyboard, messages: list[dict[str, Any]], changes: list[dict[str, str]], calls: list[Call],
+               snap: github.Snapshot | None = None, progress: Progress = lambda _: None) -> EditOutcome:
+    tools = [*READ_TOOLS, *EDIT_TOOLS] if snap is not None else EDIT_TOOLS
+    checked = False
+    for _ in range(16 if snap is not None else 8):
         resp, call = _call(
             max_tokens=16000,
             output_config={"effort": "medium"},
             system=EDIT_SYSTEM,
-            tools=EDIT_TOOLS,
+            tools=tools,
             messages=messages,
         )
         calls.append(call)
         uses = [b for b in resp.content if getattr(b, "type", "") == "tool_use"]
         if not uses:
+            issues = grounding.problems(current, snap) if snap is not None else []
+            if issues and not checked:
+                # one chance to fix citations before they're repaired (and code scenes demoted)
+                checked = True
+                messages.append({"role": "assistant", "content": resp.content})
+                messages.append({"role": "user", "content": "Before you finish, fix these citations with update_scene:\n- " + "\n- ".join(issues)})
+                continue
             summary = " ".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
             return EditOutcome(normalize(current), summary or "Done.", changes, calls)
 
@@ -334,6 +358,9 @@ def _edit_loop(current: Storyboard, messages: list[dict[str, Any]], changes: lis
         results = []
         for use in uses:
             try:
+                if snap is not None and use.name in {"list_files", "read_file", "search"}:
+                    results.append({"type": "tool_result", "tool_use_id": use.id, "content": _run_read_tool(snap, use.name, dict(use.input), progress)})
+                    continue
                 current, text = _apply(current, use.name, dict(use.input), changes)
                 results.append({"type": "tool_result", "tool_use_id": use.id, "content": text})
             except (ValueError, KeyError, ValidationError) as exc:
@@ -341,3 +368,178 @@ def _edit_loop(current: Storyboard, messages: list[dict[str, Any]], changes: lis
         messages.append({"role": "user", "content": results})
 
     raise AIError("ai_loop", "Claude kept going without finishing the edit. Try a simpler request.", 502)
+
+
+# ---------------------------------------------------------------- teaching a codebase
+
+Progress = Callable[[str], None]
+
+READ_TOOLS = [
+    {
+        "name": "list_files",
+        "description": "List a folder of the repository: its subfolders (with file counts) and files (with line counts). Use \"\" for the top.",
+        "strict": True,
+        "input_schema": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "read_file",
+        "description": "Read a file with line numbers. Up to 300 lines a call; use start_line and end_line (0 = to the end) to page through long files.",
+        "strict": True,
+        "input_schema": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}, "start_line": {"type": "integer"}, "end_line": {"type": "integer"}},
+            "required": ["path", "start_line", "end_line"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "search",
+        "description": "Search every file (or one folder) for a regular expression or plain text, case-insensitive. Returns path:line: text for each match.",
+        "strict": True,
+        "input_schema": {
+            "type": "object",
+            "properties": {"pattern": {"type": "string"}, "path": {"type": "string", "description": "A folder to search in, or \"\" for all."}},
+            "required": ["pattern", "path"],
+            "additionalProperties": False,
+        },
+    },
+]
+
+SUBMIT_TOOL = {
+    "name": "submit_lesson",
+    "description": "Hand in the finished lesson. The server checks every source citation against the repository and tells you what to fix; submit again after fixing.",
+    "strict": True,
+    "input_schema": strict_json_schema(Storyboard),
+}
+
+REPO_SYSTEM = f"""You make short narrated video lessons that teach someone a codebase. The person
+pasted a GitHub repository and said what they want to understand. They may have built it with
+an AI coding agent and now need to understand, and explain, the code themselves.
+
+Work in two steps.
+
+1. Research with list_files, read_file and search. Start from what you were given (the README
+   and the top of the tree), find where the thing they asked about actually happens, and read
+   those files: the entry point, the functions involved, how data moves between them. Read
+   before you explain. Every statement about the code must come from something you read here,
+   never from what projects like this usually do. If the repository doesn't contain what they
+   asked about, say so in the lesson instead of guessing.
+
+2. Hand in the lesson with submit_lesson: a storyboard of scenes, each a slide with a little
+   text on screen and narration spoken over it.
+   - Open with a title scene saying what the repository is and what this lesson covers. End
+     with a summary scene. In between, follow the real path through the code, one idea per scene.
+   - Show real code with code scenes: set `source` to the file and the 3 to 14 lines that matter.
+     Leave `code` empty; the server fills it from the file, so it is always exact. Give each
+     item the `line` it explains.
+   - Use flow scenes for how pieces connect ("the page calls this route, which calls this
+     function"), with the file each piece lives in as the detail.
+   - Every scene that explains code cites a source, even when it isn't a code scene. Scenes
+     that don't (the title, the summary) have an empty source with lines 0.
+   - Narration is for the ear: short sentences, plain words. Don't read code aloud symbol by
+     symbol; say what it does, and name files and functions the way a person says them
+     ("main dot py", "the save storyboard function").
+   - `at` is the index of the narration sentence (counting from 0) during which an item appears.
+   - Scene ids are s1, s2, s3... in order.
+
+Layouts:
+{LAYOUT_GUIDE}
+
+Limits: at most {MAX_SCENES} scenes, at most {MAX_ITEMS} items a scene."""
+
+
+def _repo_brief(snap: github.Snapshot) -> str:
+    parts = [f"Repository: github.com/{snap.name} at commit {snap.sha[:12]}"]
+    if snap.description:
+        parts.append(f"Description: {snap.description}")
+    parts.append(f"{len(snap.files)} source files were downloaded" + (", more were skipped as too big." if snap.truncated else "."))
+    parts.append("Top of the tree:\n" + github.tree(snap, "", limit=120))
+    if readme := github.readme(snap):
+        parts.append("<readme>\n" + readme + "\n</readme>")
+    return "\n\n".join(parts)
+
+
+def _run_read_tool(snap: github.Snapshot, name: str, args: dict[str, Any], progress: Progress) -> str:
+    if name == "list_files":
+        progress(f"Looking in {args['path'] or 'the top folder'}")
+        return github.tree(snap, args["path"])
+    if name == "read_file":
+        progress(f"Reading {args['path']}")
+        return github.read(snap, args["path"], args.get("start_line") or 1, args.get("end_line") or 0)
+    if name == "search":
+        progress(f"Searching for {args['pattern']!r}")
+        return github.search(snap, args["pattern"], args.get("path") or "")
+    raise ValueError(f"There is no tool called {name}.")
+
+
+def write_repo_lesson(snap: github.Snapshot, question: str, level: str, minutes: int, progress: Progress = lambda _: None) -> tuple[Storyboard, list[Call]]:
+    words = minutes * 150
+    scenes = max(4, min(MAX_SCENES, round(minutes * 2.3) + 1))
+    messages: list[dict[str, Any]] = [{
+        "role": "user",
+        "content": (
+            f"{_repo_brief(snap)}\n\nWhat they want to learn: {question}\n\n"
+            f"Audience: {LEVELS.get(level, LEVELS['intro'])}.\n"
+            f"Length: about {minutes} minutes spoken, so about {words} words of narration over about {scenes} scenes."
+        ),
+    }]
+    calls: list[Call] = []
+    submissions = 0
+    nudged = False
+    try:
+        for _ in range(40):
+            resp, call = _call(max_tokens=32000, output_config={"effort": "medium"}, system=REPO_SYSTEM,
+                               tools=[*READ_TOOLS, SUBMIT_TOOL], messages=messages)
+            calls.append(call)
+            uses = [b for b in resp.content if getattr(b, "type", "") == "tool_use"]
+            messages.append({"role": "assistant", "content": resp.content})
+            if not uses:
+                if nudged:
+                    raise AIError("ai_no_lesson", "Claude read the code but didn't hand in a lesson. Try again, or ask a narrower question.", 502)
+                nudged = True
+                messages.append({"role": "user", "content": "Hand in the lesson now with submit_lesson."})
+                continue
+            results = []
+            for use in uses:
+                args = dict(use.input)
+                if use.name == "submit_lesson":
+                    submissions += 1
+                    progress("Checking every citation against the code")
+                    try:
+                        board = Storyboard.model_validate(args)
+                    except ValidationError as exc:
+                        results.append({"type": "tool_result", "tool_use_id": use.id, "is_error": True, "content": f"The lesson doesn't fit the schema: {exc.errors()[0]['msg']} at {exc.errors()[0]['loc']}."})
+                        continue
+                    issues = grounding.problems(board, snap)
+                    if not issues or submissions >= 3:
+                        return grounding.ground(board, snap), calls
+                    results.append({"type": "tool_result", "tool_use_id": use.id, "is_error": True, "content": "Fix these and submit again:\n- " + "\n- ".join(issues)})
+                    continue
+                try:
+                    results.append({"type": "tool_result", "tool_use_id": use.id, "content": _run_read_tool(snap, use.name, args, progress)})
+                except (ValueError, KeyError) as exc:
+                    results.append({"type": "tool_result", "tool_use_id": use.id, "is_error": True, "content": f"Error: {exc}"})
+            messages.append({"role": "user", "content": results})
+        raise AIError("ai_loop", "Claude kept reading without finishing the lesson. Try a narrower question.", 502)
+    except AIError as exc:
+        exc.calls = calls + exc.calls
+        raise
+
+
+# ---------------------------------------------------------------- what it costs
+
+# US dollars per million tokens: (input, output). Cache writes cost 1.25x input, reads 0.1x.
+PRICES = {"claude-opus-5-5": (4.0, 20.0), "claude-sonnet-5-5": (2.0, 10.0), "claude-haiku-5-5": (0.10, 0.50)}
+
+
+def cost_usd(model_name: str, input_tokens: int, output_tokens: int, cache_write: int, cache_read: int) -> float | None:
+    price = next((p for m, p in PRICES.items() if model_name.startswith(m)), None)
+    if not price:
+        return None
+    inp, out = price
+    return round((input_tokens * inp + cache_write * inp * 1.25 + cache_read * inp * 0.1 + output_tokens * out) / 1_000_000, 4)
