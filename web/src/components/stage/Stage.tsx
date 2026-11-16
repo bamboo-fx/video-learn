@@ -314,9 +314,11 @@ function CodeLayout({ scene, on, thumb }: LayoutProps) {
   const byWidth = Math.floor((wide ? 700 : 560) / ((widest + 3.2) * 0.6))
   const byHeight = Math.floor(330 / (Math.max(lines.length, 4) * 1.55))
   const font = Math.max(13, Math.min(26, byWidth, byHeight))
-  // lines named by the items that have appeared; the newest one is the strongest
-  const lit = scene.items.map((it, i) => (on(i) && it.line ? it.line : 0)).filter(Boolean)
-  const current = lit[lit.length - 1]
+  // lines named by the items that have appeared; the one that appeared last is the strongest
+  const shownItems = scene.items.map((it, i) => ({ ...it, i })).filter((it) => on(it.i) && it.line)
+  const lit = shownItems.map((it) => it.line)
+  const newest = shownItems.reduce<(typeof shownItems)[number] | null>((a, b) => (!a || b.at > a.at || (b.at === a.at && b.i > a.i) ? b : a), null)
+  const current = newest?.line
   return (
     <div className={frame}>
       <Heading scene={scene} size={58} />

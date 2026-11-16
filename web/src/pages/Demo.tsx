@@ -25,6 +25,7 @@ export function Demo() {
       return scene && voices[id]?.text === scene.narration ? { kind: "voiced" } : { kind: "stale" }
     },
     repo: { name: demo.repo, sha: demo.sha },
+    sourcesLocked: true,
     aiEdit: null,
     aiUnavailable: "AI edits are off in the example. Make your own lesson to ask for changes.",
   }

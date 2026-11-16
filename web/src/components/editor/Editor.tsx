@@ -278,6 +278,7 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
                   <SceneInspector
                     scene={activeScene}
                     repo={host.repo}
+                    sourcesLocked={host.sourcesLocked}
                     index={activeIndex}
                     count={board.scenes.length}
                     voice={host.voiceState(activeScene.id)}

@@ -37,6 +37,7 @@ def main() -> None:
         h = tts.clip_hash(voice, model, scene["narration"])
         (AUDIO / f"{h}.mp3").write_bytes(spoken.audio)
         voices[scene["id"]] = {"hash": h, "text": scene["narration"], "url": f"/demo-audio/{h}.mp3", "duration": spoken.duration, "words": spoken.words}
+        VOICES.write_text(json.dumps(voices, indent=1) + "\n")  # saved now, so a later failure can't make a rerun pay again
         print(f"{scene['id']}  {spoken.duration:5.1f}s  {len(spoken.audio) // 1024} KB")
     # drop audio no scene uses any more
     keep = {v["hash"] for k, v in voices.items() if any(s["id"] == k for s in scenes)}

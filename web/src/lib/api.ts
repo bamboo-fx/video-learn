@@ -142,7 +142,10 @@ export interface RepoRef {
   sha: string
 }
 
-const REPO_URL = /^\s*(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?(?:[/?#].*)?\s*$/
+// The same forms the server's github.parse_repo accepts: the repository root, or a tree or
+// blob link, with an optional .git and ?query or #fragment.
+const REPO_URL =
+  /^\s*(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?(?:\/(?:tree|blob)\/[^/\s?#]+[^\s?#]*)?\/?(?:[?#].*)?\s*$/
 const REPO_SHORT = /^\s*([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\s*$/
 
 /** "github.com/o/r/tree/main" or "o/r" -> "o/r"; null if it isn't a GitHub repository. */

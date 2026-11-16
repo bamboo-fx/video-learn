@@ -17,6 +17,7 @@ interface Props {
   scene: Scene
   /** set when the lesson teaches a repository: code comes from the file, not from typing */
   repo?: RepoRef
+  sourcesLocked?: boolean
   index: number
   count: number
   voice: VoiceState
@@ -27,7 +28,7 @@ interface Props {
   onDelete: () => void
 }
 
-export function SceneInspector({ scene, repo, index, count, voice, onChange, onVoice, onMove, onDuplicate, onDelete }: Props) {
+export function SceneInspector({ scene, repo, sourcesLocked, index, count, voice, onChange, onVoice, onMove, onDuplicate, onDelete }: Props) {
   const ids = { layout: useId(), heading: useId(), sub: useId(), code: useId(), narration: useId(), path: useId() }
   const src = scene.source
   const setSource = (patch: Partial<Scene["source"]>) => onChange({ source: { ...src, ...patch } })
@@ -99,14 +100,16 @@ export function SceneInspector({ scene, repo, index, count, voice, onChange, onV
               </a>
             ) : null}
           </div>
-          <Input id={ids.path} value={src.path} placeholder="path/to/file.py" className="h-8 font-mono text-xs" onChange={(e) => setSource({ path: e.target.value.trim() })} />
+          <Input id={ids.path} value={src.path} placeholder="path/to/file.py" className="h-8 font-mono text-xs" readOnly={sourcesLocked} onChange={(e) => setSource({ path: e.target.value.trim() })} />
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
             <span>Lines</span>
-            <Input type="number" min={0} value={src.start_line || ""} aria-label="First line" className="h-7 w-20 text-xs" onChange={(e) => setSource({ start_line: Number(e.target.value) || 0 })} />
+            <Input type="number" min={0} value={src.start_line || ""} aria-label="First line" className="h-7 w-20 text-xs" readOnly={sourcesLocked} onChange={(e) => setSource({ start_line: Number(e.target.value) || 0 })} />
             <span>to</span>
-            <Input type="number" min={0} value={src.end_line || ""} aria-label="Last line" className="h-7 w-20 text-xs" onChange={(e) => setSource({ end_line: Number(e.target.value) || 0 })} />
+            <Input type="number" min={0} value={src.end_line || ""} aria-label="Last line" className="h-7 w-20 text-xs" readOnly={sourcesLocked} onChange={(e) => setSource({ end_line: Number(e.target.value) || 0 })} />
           </div>
-          {scene.layout === "code" && src.path && !scene.code ? (
+          {sourcesLocked ? (
+            <p className="text-[11px] text-muted-foreground">In the example, sources are fixed. In your own lesson you can change them, and the code is re-read from the file.</p>
+          ) : scene.layout === "code" && src.path && !scene.code ? (
             <p className="text-[11px] text-destructive" role="status">
               No code yet: that path or line range isn't in the repository. Check them and it fills in when saved.
             </p>

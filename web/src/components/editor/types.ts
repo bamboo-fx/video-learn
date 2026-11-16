@@ -25,4 +25,6 @@ export interface EditorHost {
   shareUrl?: string
   /** the repository the lesson teaches, for source links */
   repo?: RepoRef
+  /** sources can't be changed here (the example has no server to re-read the code) */
+  sourcesLocked?: boolean
 }
