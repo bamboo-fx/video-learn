@@ -79,8 +79,10 @@ class Usage(SQLModel, table=True):
     requests: int = 1  # Claude requests in this write or edit (a repo lesson makes many)
     provider: str  # anthropic | elevenlabs
     model: str
-    input_tokens: int = 0
+    input_tokens: int = 0  # uncached input
     output_tokens: int = 0
+    cache_write_tokens: int = 0
+    cache_read_tokens: int = 0
     characters: int = 0
     ms: int = 0
     ok: bool = True

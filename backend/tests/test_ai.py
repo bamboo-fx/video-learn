@@ -296,3 +296,10 @@ def test_an_edit_is_not_applied_over_newer_changes(client, owner, example, monke
     r = client.post(f"/api/projects/{p['id']}/edit", json={"instruction": "anything"}, headers=owner)
     assert r.status_code == 409 and r.json()["error"]["code"] == "changed_meanwhile"
     assert client.get(f"/api/projects/{p['id']}", headers=owner).json()["storyboard"]["scenes"][0]["heading"] == "Changed meanwhile"
+
+
+def test_cost_counts_cached_tokens():
+    # 10 uncached + 20k written to cache + 60k read from cache in, 4k out, on Opus 5.5
+    cost = llm.cost_usd("claude-opus-5-5", 10, 4000, 20000, 60000)
+    assert cost == round((10 * 4 + 20000 * 5 + 60000 * 0.4 + 4000 * 20) / 1_000_000, 4)
+    assert llm.cost_usd("some-other-model", 1, 1, 0, 0) is None
