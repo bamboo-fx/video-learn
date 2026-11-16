@@ -283,6 +283,7 @@ def log_calls(session: Session, project_id: str, owner: str, kind: str, calls: l
     session.add(Usage(project_id=project_id, owner=owner, kind=kind, provider="anthropic",
                       model=calls[-1].model if calls else llm.model(), requests=len(calls),
                       input_tokens=sum(c.input_tokens for c in calls), output_tokens=sum(c.output_tokens for c in calls),
+                      cache_write_tokens=sum(c.cache_write_tokens for c in calls), cache_read_tokens=sum(c.cache_read_tokens for c in calls),
                       ms=sum(c.ms for c in calls), ok=not error, error=error))
     session.commit()
 
@@ -534,7 +535,15 @@ def project_usage(project_id: str, session: SessionDep, owner: OwnerDep):
     """What this lesson has cost so far, in tokens and characters (for the cost analysis)."""
     project = owned_project(session, project_id, owner)
     rows = session.exec(select(Usage).where(Usage.project_id == project.id).order_by(Usage.created_at)).all()
-    return {"calls": [r.model_dump(mode="json") for r in rows]}
+    calls = []
+    for r in rows:
+        row = r.model_dump(mode="json")
+        if r.provider == "anthropic":
+            row["cost_usd"] = llm.cost_usd(r.model, r.input_tokens, r.output_tokens, r.cache_write_tokens or 0, r.cache_read_tokens or 0)
+        elif r.provider == "elevenlabs":
+            row["credits"] = r.characters  # about one credit per character on eleven_multilingual_v2
+        calls.append(row)
+    return {"calls": calls}
 
 
 @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])

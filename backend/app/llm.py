@@ -37,9 +37,11 @@ class AIError(Exception):
 @dataclass
 class Call:
     model: str
-    input_tokens: int = 0
+    input_tokens: int = 0  # uncached input only; the cached parts are counted below
     output_tokens: int = 0
     ms: int = 0
+    cache_write_tokens: int = 0
+    cache_read_tokens: int = 0
 
 
 def model() -> str:
@@ -83,6 +85,8 @@ def _call(**kwargs: Any) -> tuple[Any, Call]:
         model=getattr(resp, "model", None) or model(),
         input_tokens=resp.usage.input_tokens or 0,
         output_tokens=resp.usage.output_tokens or 0,
+        cache_write_tokens=getattr(resp.usage, "cache_creation_input_tokens", 0) or 0,
+        cache_read_tokens=getattr(resp.usage, "cache_read_input_tokens", 0) or 0,
         ms=int((time.monotonic() - started) * 1000),
     )
     if resp.stop_reason in ("refusal", "max_tokens"):
@@ -525,3 +529,17 @@ def write_repo_lesson(snap: github.Snapshot, question: str, level: str, minutes:
     except AIError as exc:
         exc.calls = calls + exc.calls
         raise
+
+
+# ---------------------------------------------------------------- what it costs
+
+# US dollars per million tokens: (input, output). Cache writes cost 1.25x input, reads 0.1x.
+PRICES = {"claude-opus-5-5": (4.0, 20.0), "claude-sonnet-5-5": (2.0, 10.0), "claude-haiku-5-5": (0.10, 0.50)}
+
+
+def cost_usd(model_name: str, input_tokens: int, output_tokens: int, cache_write: int, cache_read: int) -> float | None:
+    price = next((p for m, p in PRICES.items() if model_name.startswith(m)), None)
+    if not price:
+        return None
+    inp, out = price
+    return round((input_tokens * inp + cache_write * inp * 1.25 + cache_read * inp * 0.1 + output_tokens * out) / 1_000_000, 4)
