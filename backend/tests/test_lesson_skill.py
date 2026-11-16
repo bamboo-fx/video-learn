@@ -157,3 +157,65 @@ def test_diff_lists_what_changed(repo):
 def test_paths_keep_their_leading_dot():
     assert lesson.clean_path("./.github/workflows/ci.yml") == ".github/workflows/ci.yml"
     assert lesson.clean_path("/src/app.py") == "src/app.py"
+
+
+
+# ---------------------------------------------------------------- Greptile review fixes
+
+
+def test_a_symlink_to_a_secret_file_is_off_limits(repo):
+    (repo / "config.txt").symlink_to(repo / ".env")
+    files, no = lesson.allowed_files(repo)
+    assert "config.txt" not in files and "links to .env" in no["config.txt"]
+
+
+def test_every_outgoing_field_is_scanned(repo):
+    board = storyboard()
+    board["scenes"][1]["narration"] = "We call Claude with sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789 here."
+    code, out = run("check", write(repo, board))
+    assert code == 2 and "Scene 2's narration seems to contain an Anthropic key" in out
+    code, out = run("check", write(repo, storyboard()), "--question", "why ghp_" + "a" * 36)
+    assert code == 2 and "The question seems to contain a GitHub token" in out
+
+
+def test_the_preview_shows_the_text_and_code_being_sent(repo):
+    code, out = run("publish", write(repo, storyboard()), "--dry-run", "--question", "How does login work?")
+    assert code == 0
+    assert "Question: How does login work?" in out and "narration: It hashes the password. Then it compares." in out
+    assert "    | def check_password(user, given):" in out
+
+
+def test_server_limits_are_checked_before_upload(repo):
+    board = storyboard()
+    board["scenes"][1]["narration"] = "Long. " * 400
+    code, out = run("check", write(repo, board))
+    assert code == 2 and "keep it under 1200" in out
+
+
+def test_worktrees_keep_the_draft_out_of_git(repo, tmp_path, monkeypatch):
+    wt = tmp_path / "wt"
+    sh(repo, "git", "worktree", "add", "-q", str(wt), "-b", "wt-branch")
+    assert (wt / ".git").is_file()
+    monkeypatch.chdir(wt)
+    run("scan")
+    exclude = pathlib.Path(subprocess.run(["git", "rev-parse", "--git-path", "info/exclude"], cwd=wt, capture_output=True, text=True).stdout.strip())
+    exclude = exclude if exclude.is_absolute() else wt / exclude
+    assert ".video-learn/" in exclude.read_text()
+
+
+def test_links_need_the_commit_on_origin(repo, tmp_path):
+    upstream = tmp_path / "upstream.git"
+    sh(tmp_path, "git", "init", "-q", "--bare", str(upstream))
+    sh(repo, "git", "remote", "add", "origin", "https://github.com/octo/app.git")
+    sh(repo, "git", "remote", "add", "upstream", str(upstream))
+    sh(repo, "git", "push", "-q", "upstream", "main")
+    sh(repo, "git", "fetch", "-q", "upstream")
+    assert lesson.repo_link(repo, {"src/auth.py"}) == ("", "")  # only upstream has it
+
+
+def test_diff_lists_deleted_files(repo):
+    sh(repo, "git", "switch", "-qc", "cleanup")
+    sh(repo, "git", "rm", "-q", "README.md")
+    sh(repo, "git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "drop readme")
+    code, out = run("scan", "--diff", "main")
+    assert code == 0 and "Deleted" in out and "README.md" in out.split("Deleted")[1]
