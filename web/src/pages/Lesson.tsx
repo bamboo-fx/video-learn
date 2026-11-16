@@ -14,26 +14,46 @@ export const configQuery = { queryKey: ["config"], queryFn: api.config, staleTim
 
 /** A lesson made by the /lesson skill or the claude.ai connector arrives with a one-time
  * ?claim= link; opening it makes this browser the owner. The token leaves the address bar at
- * once so it isn't shared by accident. */
+ * once so it isn't shared by accident, but stays in this tab until the claim succeeds, so a
+ * claim that fails (say, offline) can be retried. */
 function useClaim(id: string) {
   const qc = useQueryClient()
   const started = useRef(false)
   useEffect(() => {
+    const key = `claim:${id}`
     const params = new URLSearchParams(window.location.search)
-    const token = params.get("claim")
+    const fromUrl = params.get("claim")
+    if (fromUrl) {
+      sessionStorage.setItem(key, fromUrl)
+      params.delete("claim")
+      const rest = params.toString()
+      window.history.replaceState({}, "", `${window.location.pathname}${rest ? `?${rest}` : ""}`)
+    }
+    const token = sessionStorage.getItem(key)
     if (!token || started.current) return
     started.current = true
-    params.delete("claim")
-    const rest = params.toString()
-    window.history.replaceState({}, "", `${window.location.pathname}${rest ? `?${rest}` : ""}`)
-    api.claim(id, token).then(
-      (p) => {
-        qc.setQueryData(["project", id], p)
-        qc.invalidateQueries({ queryKey: ["projects"] })
-        toast.success("This lesson is yours now. It's saved in this browser.")
-      },
-      (e) => toast.error(e instanceof ApiError ? e.message : "Couldn't claim this lesson."),
-    )
+
+    const attempt = () =>
+      api.claim(id, token).then(
+        async (p) => {
+          sessionStorage.removeItem(key)
+          // a GET that started before the claim mustn't land after it and look read-only
+          await qc.cancelQueries({ queryKey: ["project", id] })
+          qc.setQueryData(["project", id], p)
+          qc.invalidateQueries({ queryKey: ["project", id] })
+          qc.invalidateQueries({ queryKey: ["projects"] })
+          toast.success("This lesson is yours now. It's saved in this browser.")
+        },
+        (e) => {
+          const final = e instanceof ApiError && (e.code === "already_claimed" || e.code === "bad_claim")
+          if (final) sessionStorage.removeItem(key)
+          toast.error(e instanceof ApiError ? e.message : "Couldn't claim this lesson.", {
+            duration: final ? 6000 : Infinity,
+            action: final ? undefined : { label: "Try again", onClick: () => attempt() },
+          })
+        },
+      )
+    attempt()
   }, [id, qc])
 }
 
