@@ -25,7 +25,8 @@ def main() -> None:
     scenes = json.loads((ROOT / "shared" / "demo-lesson.json").read_text())["storyboard"]["scenes"]
     voices = json.loads(VOICES.read_text()) if VOICES.exists() else {}
     voice, model = tts.voice_id(), tts.model_id()
-    todo = [s for s in scenes if voices.get(s["id"], {}).get("text") != s["narration"]]
+    # by hash, so a changed voice or model re-voices every scene, not only edited ones
+    todo = [s for s in scenes if voices.get(s["id"], {}).get("hash") != tts.clip_hash(voice, model, s["narration"])]
     print(f"{len(todo)} of {len(scenes)} scenes to voice, {sum(len(s['narration']) for s in todo)} characters")
     AUDIO.mkdir(parents=True, exist_ok=True)
     for i, scene in enumerate(scenes):

@@ -157,5 +157,6 @@ export function parseRepo(text: string): string | null {
 export function githubUrl(repo: RepoRef, path = "", start = 0, end = 0): string {
   if (!path) return `https://github.com/${repo.name}/tree/${repo.sha}`
   const lines = start ? `#L${start}${end && end !== start ? `-L${end}` : ""}` : ""
-  return `https://github.com/${repo.name}/blob/${repo.sha}/${path}${lines}`
+  // each path segment encoded, so a file like src/C#Parser.cs isn't cut at the #
+  return `https://github.com/${repo.name}/blob/${repo.sha}/${path.split("/").map(encodeURIComponent).join("/")}${lines}`
 }
