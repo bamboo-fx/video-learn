@@ -43,6 +43,8 @@ export interface Project {
   progress: string[]
   voices: Record<string, Voice>
   is_owner: boolean
+  /** "web" (written on our server), "local" (the /lesson skill) or "connector" (claude.ai) */
+  origin: "web" | "local" | "connector"
   created_at: string
   updated_at: string
 }
@@ -133,6 +135,7 @@ export const api = {
   edit: (id: string, instruction: string, sceneId: string | null) =>
     request<EditResult>("POST", `/api/projects/${id}/edit`, { instruction, scene_id: sceneId }),
   remove: (id: string) => request<void>("DELETE", `/api/projects/${id}`),
+  claim: (id: string, token: string) => request<Project>("POST", `/api/projects/${id}/claim`, { token }),
 }
 
 // ---------------------------------------------------------------- repositories

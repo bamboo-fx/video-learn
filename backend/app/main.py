@@ -1,7 +1,10 @@
 """The API, and the web app's static files, from one FastAPI service."""
 
+import hashlib
+import hmac
 import os
 import pathlib
+import secrets
 import threading
 import re
 from contextlib import asynccontextmanager, contextmanager
@@ -21,7 +24,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, col, select
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import github, grounding, limits, llm, tts
+from app import github, grounding, limits, llm, secrets_scan, tts
 from app.db import engine, get_session, init_db
 from app.models import Clip, Project, RepoSnapshot, Usage, now
 from app.storyboard import Storyboard, normalize
@@ -189,7 +192,8 @@ def project_out(project: Project, owner: str | None, voices: dict[str, Any] | No
         "repo_sha": project.repo_sha or "",
         "progress": (project.progress or [])[-12:],
         "voices": voices or {},
-        "is_owner": owner is not None and owner == project.owner,
+        "is_owner": owner is not None and bool(project.owner) and owner == project.owner,
+        "origin": project.origin or "web",
         "created_at": iso(project.created_at),
         "updated_at": iso(project.updated_at),
     }
@@ -579,6 +583,11 @@ def edit_project(project_id: str, body: EditIn, session: SessionDep, owner: Owne
         raise ApiError(409, "not_written", "There's no lesson to edit yet.")
     if project.status == "writing":
         raise ApiError(409, "being_written", "This lesson is being written. Edit it once it's done.")
+    if (project.origin or "web") != "web":
+        # Made by the person's own Claude: the server has no copy of local code to check edits
+        # against, and editing here would put the AI cost on the site.
+        raise ApiError(409, "edit_where_made", "This lesson was made by your own Claude. Ask it there for changes "
+                       "(run /lesson again), or edit any scene by hand here.")
     board = Storyboard.model_validate(project.storyboard)
     started_from = project.updated_at
     notes = project.notes
@@ -623,6 +632,105 @@ def project_usage(project_id: str, session: SessionDep, owner: OwnerDep):
             row["credits"] = r.characters  # about one credit per character on eleven_multilingual_v2
         calls.append(row)
     return {"calls": calls}
+
+
+# ---------------------------------------------------------------- lessons made elsewhere
+
+MAX_IMPORT_BYTES = 300_000
+
+
+def client_key(request: Request) -> str:
+    """A stand-in for "who is this" when there's no browser id: a hash of the caller's address
+    (the first hop Railway's proxy reports), so limits work without storing addresses."""
+    forwarded = request.headers.get("x-forwarded-for", "")
+    ip = forwarded.split(",")[0].strip() or (request.client.host if request.client else "unknown")
+    return "addr:" + hashlib.sha256(ip.encode()).hexdigest()[:24]
+
+
+def check_lesson_content(board: Storyboard) -> None:
+    """Size and secret checks for a lesson whose text and code came from outside the server."""
+    for i, scene in enumerate(board.scenes, 1):
+        fields = [scene.heading, scene.subheading, scene.narration, scene.code] + [f"{it.text} {it.detail}" for it in scene.items]
+        if len(scene.narration) > 1200 or len(scene.heading) > 200 or len(scene.code) > 4000 or scene.code.count("\n") >= 14:
+            raise ApiError(422, "too_big", f"Scene {i} is too long: keep narration under 1,200 characters and code to 14 lines.")
+        for text in fields:
+            if found := secrets_scan.find_secret(text):
+                raise ApiError(422, "looks_like_a_secret",
+                               f"Scene {i} seems to contain {found}. It wasn't saved; cite different lines or remove it.")
+
+
+def create_imported(session: Session, board: Storyboard, question: str, origin: str, request: Request,
+                    repo: str = "", repo_sha: str = "") -> dict[str, Any]:
+    """Store a finished lesson made by someone's own Claude, owned by nobody until its
+    one-time claim link is opened. Costs no AI; voicing waits for the owner to click Voice."""
+    check_lesson_content(board)
+    who = client_key(request)
+    try:
+        usage_id = limits.reserve(session, who, "-", "import", "none", origin)
+    except limits.LimitError as exc:
+        raise ApiError(429, "limit", exc.message) from exc
+    token = secrets.token_urlsafe(24)
+    project = Project(owner="", claim_hash=hashlib.sha256(token.encode()).hexdigest(), origin=origin,
+                      topic=question, title=board.title, storyboard=board.model_dump(), status="ready",
+                      voice_id=tts.voice_id(), repo=repo, repo_sha=repo_sha)
+    session.add(project)
+    session.commit()
+    session.refresh(project)
+    limits.settle(session, usage_id, project_id=project.id)
+    base = str(request.base_url).rstrip("/")
+    if request.headers.get("x-forwarded-proto") == "https" and base.startswith("http://"):
+        base = "https://" + base[len("http://"):]
+    return {"id": project.id, "url": f"{base}/l/{project.id}?claim={token}", "title": board.title}
+
+
+class ImportIn(BaseModel):
+    storyboard: dict[str, Any]
+    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=300)]
+    # the public GitHub repository and commit the code came from, when there is one, for links
+    repo: str = Field(default="", max_length=200, pattern=r"^$|^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+    sha: str = Field(default="", pattern=r"^$|^[0-9a-f]{40}$")
+    client: str = Field(default="", max_length=60)
+
+
+@app.post("/api/import", status_code=201)
+def import_lesson(body: ImportIn, request: Request, session: SessionDep):
+    """A lesson from the /lesson skill: the person's own Claude Code researched their code, and
+    the skill already filled every code scene from their files and refused secret files. Only
+    the storyboard (with the cited lines) arrives here, never the repository."""
+    if int(request.headers.get("content-length") or 0) > MAX_IMPORT_BYTES:
+        raise ApiError(413, "too_big", "That lesson is too large to upload.")
+    try:
+        board = normalize(Storyboard.model_validate(body.storyboard))
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        raise ApiError(422, "invalid_storyboard", f"The lesson isn't valid: {'.'.join(str(p) for p in first['loc'])}: {first['msg']}") from exc
+    return create_imported(session, board, body.question, "local", request, repo=body.repo if body.sha else "", repo_sha=body.sha)
+
+
+class ClaimIn(BaseModel):
+    token: str = Field(min_length=10, max_length=100)
+
+
+@app.post("/api/projects/{project_id}/claim")
+def claim_project(project_id: str, body: ClaimIn, session: SessionDep, owner: OwnerDep):
+    """The browser that opens a lesson's claim link first becomes its owner. The link works once."""
+    project = load_project(session, project_id)
+    if project.owner == owner:
+        return project_out(project, owner, voices_for(session, project))
+    if project.owner or not project.claim_hash:
+        raise ApiError(409, "already_claimed", "This lesson already belongs to someone. You can still watch it.")
+    if not hmac.compare_digest(project.claim_hash, hashlib.sha256(body.token.encode()).hexdigest()):
+        raise ApiError(403, "bad_claim", "That claim link isn't valid for this lesson.")
+    claimed = session.exec(
+        update(Project).where(col(Project.id) == project_id, col(Project.owner) == "", col(Project.claim_hash) == project.claim_hash)
+        .values(owner=owner, claim_hash="", updated_at=now())
+    ).rowcount
+    session.commit()
+    if not claimed:
+        raise ApiError(409, "already_claimed", "This lesson already belongs to someone. You can still watch it.")
+    project = session.get(Project, project_id)
+    session.refresh(project)
+    return project_out(project, owner, voices_for(session, project))
 
 
 @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
