@@ -2,6 +2,7 @@
  * private repositories too) and the connector for the Claude app (public repositories). */
 import { Check, Copy, ShieldCheck, Terminal, Unplug } from "lucide-react"
 import { useState, type ReactNode } from "react"
+import { toast } from "sonner"
 
 import { Shell } from "@/components/common/bits"
 import { Button } from "@/components/ui/button"
@@ -20,10 +21,13 @@ function CopyBlock({ text, label }: { text: string; label: string }) {
         className="absolute top-2 right-2"
         aria-label={`Copy ${label}`}
         onClick={() =>
-          navigator.clipboard.writeText(text).then(() => {
-            setDone(true)
-            setTimeout(() => setDone(false), 1500)
-          })
+          navigator.clipboard.writeText(text).then(
+            () => {
+              setDone(true)
+              setTimeout(() => setDone(false), 1500)
+            },
+            () => toast.error("Your browser didn't allow copying. Select the text and copy it by hand."),
+          )
         }
       >
         {done ? <Check className="text-ok" /> : <Copy />}

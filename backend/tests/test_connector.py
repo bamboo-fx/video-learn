@@ -117,3 +117,16 @@ def test_connector_downloads_never_send_the_servers_github_token(monkeypatch):
 def test_only_post_is_accepted(client):
     r = client.get("/mcp")
     assert r.status_code == 405 and r.headers["allow"] == "POST"
+
+
+def test_failed_opens_still_count(client, monkeypatch):
+    def too_big(o, r, ref=None):
+        raise github.RepoError("repo_too_big", "That repository is too big to read.", 413)
+
+    monkeypatch.setenv("LIMIT_REPO_OPENS_PER_ADDRESS", "2")
+    monkeypatch.setattr(github, "head_sha", lambda *a: None)
+    monkeypatch.setattr(github, "download", too_big)
+    for _ in range(2):
+        assert "too big" in call(client, "open_repo", ip="192.0.2.99", repo="octo/huge")[1]
+    err, text = call(client, "open_repo", ip="192.0.2.99", repo="octo/huge")
+    assert err and "most repositories" in text
