@@ -36,6 +36,8 @@ export interface Project {
   storyboard: Storyboard | null
   /** "owner/repo" when the lesson teaches a codebase, at commit repo_sha */
   repo: string
+  /** a branch or tag from the pasted link, or "" for the default branch */
+  repo_ref: string
   repo_sha: string
   /** what Claude is doing while it writes, newest last */
   progress: string[]
@@ -140,7 +142,7 @@ export interface RepoRef {
   sha: string
 }
 
-const REPO_URL = /^\s*(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?(?:\/.*)?\s*$/
+const REPO_URL = /^\s*(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?(?:[/?#].*)?\s*$/
 const REPO_SHORT = /^\s*([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\s*$/
 
 /** "github.com/o/r/tree/main" or "o/r" -> "o/r"; null if it isn't a GitHub repository. */

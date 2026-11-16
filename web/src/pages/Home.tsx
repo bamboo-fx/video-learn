@@ -38,7 +38,8 @@ export function Home() {
   const repoError = touched && repo.trim() && !parsed ? "That isn't a GitHub repository link. It should look like github.com/owner/repo." : null
 
   const create = useMutation({
-    mutationFn: () => api.create({ topic: topic.trim(), repo: parsed ?? "", notes: "", level, minutes: Number(minutes) }),
+    // send the link as pasted: the server reads the branch from it too (github.com/o/r/tree/dev)
+    mutationFn: () => api.create({ topic: topic.trim(), repo: repo.trim(), notes: "", level, minutes: Number(minutes) }),
     onSuccess: (project: Project) => {
       sessionStorage.setItem(`writing:${project.id}`, "1")
       sessionStorage.setItem(`autovoice:${project.id}`, "1")

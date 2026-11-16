@@ -106,7 +106,11 @@ export function SceneInspector({ scene, repo, index, count, voice, onChange, onV
             <span>to</span>
             <Input type="number" min={0} value={src.end_line || ""} aria-label="Last line" className="h-7 w-20 text-xs" onChange={(e) => setSource({ end_line: Number(e.target.value) || 0 })} />
           </div>
-          {scene.layout === "code" ? (
+          {scene.layout === "code" && src.path && !scene.code ? (
+            <p className="text-[11px] text-destructive" role="status">
+              No code yet: that path or line range isn't in the repository. Check them and it fills in when saved.
+            </p>
+          ) : scene.layout === "code" ? (
             <p className="text-[11px] text-muted-foreground">The code shown is read from this file when you save, so it's always exact (14 lines at most).</p>
           ) : null}
         </fieldset>
