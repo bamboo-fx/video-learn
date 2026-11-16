@@ -55,7 +55,7 @@ SKIP_SUFFIXES = (
 
 URL = re.compile(
     r"^\s*(?:https?://)?(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?"
-    r"(?:/(?:tree|blob)/([^/\s?#]+)[^\s?#]*)?/?(?:[?#].*)?\s*$"
+    r"(?:/(?:tree|blob)/([^\s?#]+?))?/?(?:[?#].*)?\s*$"
 )
 SHORT = re.compile(r"^\s*([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?\s*$")
 
@@ -102,7 +102,11 @@ class Snapshot:
 
 
 def parse_repo(text: str) -> tuple[str, str, str | None]:
-    """'https://github.com/o/r', 'github.com/o/r/tree/main/src', or 'o/r' -> (owner, repo, ref)."""
+    """'https://github.com/o/r', 'github.com/o/r/tree/main/src', or 'o/r' -> (owner, repo, ref).
+
+    For a tree or blob link, `ref` is everything after tree/ or blob/ ("feature/login/src"):
+    a branch name can contain slashes, so which part is the branch is settled by
+    resolve_ref() against GitHub, not guessed here."""
     m = URL.match(text or "") or SHORT.match(text or "")
     if not m:
         raise RepoError("bad_repo_url", "That doesn't look like a GitHub repository. Paste a link like github.com/owner/repo.")
@@ -147,6 +151,22 @@ def head_sha(owner: str, repo: str, ref: str | None) -> str | None:
     return text if r.status_code == 200 and re.fullmatch(r"[0-9a-f]{40}", text) else None
 
 
+def resolve_ref(owner: str, repo: str, ref_path: str | None) -> str | None:
+    """The branch, tag or commit at the start of a tree/blob path: the longest prefix that
+    GitHub recognises ("feature/login" in "feature/login/src/app.py")."""
+    if not ref_path:
+        return None
+    parts = ref_path.strip("/").split("/")
+    if len(parts) == 1:
+        return parts[0]
+    for k in range(len(parts), 0, -1):
+        candidate = "/".join(parts[:k])
+        if head_sha(owner, repo, candidate):
+            return candidate
+    raise RepoError("ref_not_found", f"Couldn't find a branch at the start of {ref_path!r} in github.com/{owner}/{repo}. "
+                    "Paste the repository's main link instead.", 404)
+
+
 def keep(path: str, size: int) -> bool:
     parts = path.split("/")
     if any(p in SKIP_DIRS for p in parts[:-1]):
@@ -179,7 +199,7 @@ def rank(path: str) -> tuple[int, int, str]:
 def download(owner: str, repo: str, ref: str | None = None) -> Snapshot:
     info = repo_info(owner, repo)
     owner, repo = (info.get("full_name") or f"{owner}/{repo}").split("/", 1)
-    ref = ref or info.get("default_branch") or "HEAD"
+    ref = resolve_ref(owner, repo, ref) or info.get("default_branch") or "HEAD"
 
     try:
         with httpx.stream("GET", f"{CODELOAD}/{owner}/{repo}/tar.gz/{ref}", headers={"User-Agent": "video-learn"},
@@ -216,10 +236,20 @@ def download(owner: str, repo: str, ref: str | None = None) -> Snapshot:
                 if not member.isfile():
                     continue
                 path = member.name.split("/", 1)[1] if "/" in member.name else member.name
-                if not keep(path, member.size) or held + member.size > MAX_CANDIDATES:
+                if not keep(path, member.size):
                     snap.skipped += 1
-                    snap.truncated = snap.truncated or held + member.size > MAX_CANDIDATES
                     continue
+                if held + member.size > MAX_CANDIDATES:
+                    # Full: make room by dropping the worst-ranked files held so far, unless
+                    # this one ranks worse than all of them.
+                    candidates.sort(key=lambda c: c[0])
+                    while candidates and held + member.size > MAX_CANDIDATES and candidates[-1][0] > rank(path):
+                        held -= len(candidates.pop()[1].encode())
+                        snap.skipped += 1
+                    snap.truncated = True
+                    if held + member.size > MAX_CANDIDATES:
+                        snap.skipped += 1
+                        continue
                 raw = tar.extractfile(member).read()  # type: ignore[union-attr]
                 if b"\x00" in raw[:4096]:
                     snap.skipped += 1

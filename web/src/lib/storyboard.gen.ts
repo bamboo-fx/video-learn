@@ -42,7 +42,7 @@ export interface Storyboard {
       line: number;
     }[];
     /**
-     * Leave empty: on a code scene it's filled in from `source`.
+     * In a repository lesson leave empty (it's filled from `source`); otherwise the code to show on a code scene, or an empty string.
      */
     code: string;
     source: {

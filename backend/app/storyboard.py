@@ -26,8 +26,9 @@ LAYOUTS: dict[str, str] = {
     "compare": "Exactly two items side by side: text is each side's name, detail its description.",
     "definition": "One term in the heading, its definition as the single item, optional example as detail.",
     "example": "A worked example: the setup as subheading, then each line of working as an item.",
-    "code": "Real code from the repository: set `source` to the file and line range (at most 14 lines); "
-    "the code is filled in from the file. Items point out what matters, each with the `line` it's about.",
+    "code": "A code listing of at most 14 lines; items point out what matters. In a lesson about a repository, "
+    "set `source` to the file and line range and leave `code` empty: it's filled from the file, and each item "
+    "gets the `line` it's about. Otherwise write the code in `code`.",
     "flow": "How pieces connect, left to right: two to five items, each a step or component (text) with "
     "the file it lives in (detail). Good for 'what happens when...' scenes.",
     "summary": "The takeaways, two to four items. Usually the last scene.",
@@ -61,7 +62,7 @@ class Scene(Strict):
     heading: str = Field(description="The scene's title on screen. At most 8 words.")
     subheading: str = Field(description="One short line under the heading, or an empty string.")
     items: list[Item] = Field(max_length=MAX_ITEMS)
-    code: str = Field(description="Leave empty: on a code scene it's filled in from `source`.")
+    code: str = Field(description="In a repository lesson leave empty (it's filled from `source`); otherwise the code to show on a code scene, or an empty string.")
     source: Source = Field(
         default_factory=lambda: Source(path="", start_line=0, end_line=0),
         description="Where in the repository this scene comes from. Every scene that explains code cites it.",

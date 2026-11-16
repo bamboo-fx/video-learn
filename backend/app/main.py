@@ -2,6 +2,7 @@
 
 import os
 import pathlib
+import threading
 import re
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
@@ -304,22 +305,26 @@ def set_project(session: Session, project_id: str, **fields: Any) -> Project:
 
 
 _snapshots: "OrderedDict[str, github.Snapshot]" = OrderedDict()
+_snapshots_lock = threading.Lock()  # routes run in a thread pool
 SNAPSHOT_CACHE = 8  # each is up to 8 MB of text
 
 
 def remember(snap: github.Snapshot) -> github.Snapshot:
-    _snapshots[snap.key] = snap
-    _snapshots.move_to_end(snap.key)
-    while len(_snapshots) > SNAPSHOT_CACHE:
-        _snapshots.popitem(last=False)
+    with _snapshots_lock:
+        _snapshots[snap.key] = snap
+        _snapshots.move_to_end(snap.key)
+        while len(_snapshots) > SNAPSHOT_CACHE:
+            _snapshots.popitem(last=False)
     return snap
 
 
 def load_snapshot(session: Session, key: str) -> github.Snapshot | None:
     """A stored repository, from memory if this server read it recently."""
-    if key in _snapshots:
-        _snapshots.move_to_end(key)
-        return _snapshots[key]
+    with _snapshots_lock:
+        snap = _snapshots.get(key)
+        if snap is not None:
+            _snapshots.move_to_end(key)
+            return snap
     row = session.get(RepoSnapshot, key)
     if not row:
         return None
@@ -386,16 +391,16 @@ def write_project(project_id: str, session: SessionDep, owner: OwnerDep):
     voice_id = project.voice_id or tts.voice_id()
     session.close()  # don't hold a database connection while GitHub or Claude works
     progress = progress_writer(project_id)
-    repo_sha = ""
+    repo_sha, repo_name = "", repo
     try:
         if repo:
             set_project(session, project_id, progress=[f"Downloading github.com/{repo}"])
             session.close()
             snap = fetch_snapshot(session, repo, ref)
-            repo_sha = snap.sha
-            # GitHub's spelling of the name, so the snapshot is found again for edits and saves
-            set_project(session, project_id, repo=snap.name, repo_sha=snap.sha,
-                        progress=[f"Read {len(snap.files)} files from github.com/{snap.name}"])
+            repo_sha, repo_name = snap.sha, snap.name
+            # The commit is saved with the new storyboard only when the write succeeds, so a
+            # failed rewrite never points the old lesson at different code.
+            set_project(session, project_id, progress=[f"Read {len(snap.files)} files from github.com/{snap.name}"])
             session.close()
             board, calls = llm.write_repo_lesson(snap, topic, level, minutes, progress)
         else:
@@ -416,7 +421,8 @@ def write_project(project_id: str, session: SessionDep, owner: OwnerDep):
 
     log_calls(session, project_id, owner, "write", calls)
     project = set_project(session, project_id, storyboard=board.model_dump(), title=board.title,
-                          voice_id=voice_id, status="ready", error="", **({"repo_sha": repo_sha} if repo_sha else {}))
+                          voice_id=voice_id, status="ready", error="",
+                          **({"repo": repo_name, "repo_sha": repo_sha} if repo_sha else {}))
     return project_out(project, owner, voices_for(session, project))
 
 
