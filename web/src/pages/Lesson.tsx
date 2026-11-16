@@ -236,6 +236,15 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
     timer.current = setTimeout(() => save().catch(() => {}), 800)
   }
 
+  // a save that failed while offline is retried as soon as the connection returns
+  useEffect(() => {
+    const onOnline = () => {
+      if (dirty.current) save().catch(() => {})
+    }
+    window.addEventListener("online", onOnline)
+    return () => window.removeEventListener("online", onOnline)
+  }, [save])
+
   // save before leaving
   useEffect(() => {
     const onLeave = (e: BeforeUnloadEvent) => {
