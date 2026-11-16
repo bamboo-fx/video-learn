@@ -35,7 +35,11 @@ export function Home() {
       // Claude writes it in the background while the editor opens and waits.
       api.write(project.id).then(
         (p) => qc.setQueryData(["project", p.id], p),
-        () => qc.invalidateQueries({ queryKey: ["project", project.id] }),
+        () => {
+          // the lesson page stops waiting and shows why (the server saved the reason)
+          sessionStorage.removeItem(`writing:${project.id}`)
+          qc.invalidateQueries({ queryKey: ["project", project.id] })
+        },
       )
       qc.invalidateQueries({ queryKey: ["projects"] })
       navigate(`/l/${project.id}`)

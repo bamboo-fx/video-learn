@@ -42,15 +42,15 @@ export interface Timeline {
   total: number
 }
 
-const SENTENCE = /[^.!?]+(?:[.!?]+["')\]]*|$)/g
+// A sentence ends at . ! or ? followed by a space or the end, so "Node.js" and "3.14" stay whole.
+const SENTENCE = /\S[\s\S]*?(?:[.!?]+["')\]]*(?=\s|$)|$)/g
 
 /** Character spans of each sentence. Mirrors backend/app/storyboard.py sentences(). */
 export function sentenceSpans(text: string): [number, number][] {
   const spans: [number, number][] = []
   for (const m of text.matchAll(SENTENCE)) {
-    let a = m.index ?? 0
+    const a = m.index ?? 0
     let b = a + m[0].length
-    while (a < b && /\s/.test(text[a])) a++
     while (b > a && /\s/.test(text[b - 1])) b--
     if (b > a) spans.push([a, b])
   }
