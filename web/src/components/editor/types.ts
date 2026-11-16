@@ -23,4 +23,6 @@ export interface EditorHost {
   aiEdit: ((instruction: string, sceneId: string | null) => Promise<EditResult>) | null
   aiUnavailable?: string
   shareUrl?: string
+  /** a reason hand editing is paused right now (an AI edit is running), or undefined */
+  locked?: string
 }

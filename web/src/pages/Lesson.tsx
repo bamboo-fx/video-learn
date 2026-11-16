@@ -142,6 +142,7 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
   const [saveError, setSaveError] = useState<string>()
   const [voicing, setVoicing] = useState<Record<string, boolean>>({})
   const [failed, setFailed] = useState<Record<string, string>>({})
+  const [aiBusy, setAiBusy] = useState(false)
   const voices = project.voices
 
   const dirty = useRef(false)
@@ -274,8 +275,14 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
   }, [])
 
   const aiEdit = async (instruction: string, sceneId: string | null): Promise<EditResult> => {
-    await save()
-    const result = await api.edit(project.id, instruction, sceneId)
+    setAiBusy(true)
+    let result: EditResult
+    try {
+      await save()
+      result = await api.edit(project.id, instruction, sceneId)
+    } finally {
+      setAiBusy(false)
+    }
     qc.setQueryData(key, result.project)
     setBoardState(result.project.storyboard!)
     const changed = result.changes.filter((c) => c.kind === "updated" || c.kind === "inserted").map((c) => c.scene_id)
@@ -308,6 +315,7 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
         }
       : undefined,
     aiEdit: aiReady ? aiEdit : null,
+    locked: aiBusy ? "Claude is editing the lesson. Hand edits are paused until it's done, so nothing you type gets overwritten." : undefined,
     aiUnavailable: aiReady ? undefined : "AI edits aren't set up on this server yet. You can still edit every scene by hand.",
     shareUrl: `${window.location.origin}/l/${project.id}`,
   }
