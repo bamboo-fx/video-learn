@@ -33,6 +33,10 @@ SERVER = os.environ.get("VIDEO_LEARN_URL", "https://web-production-77637c10.up.r
 LAYOUTS = {"title", "points", "steps", "compare", "definition", "example", "code", "flow", "summary"}
 MAX_SCENES, MAX_ITEMS, MAX_CODE_LINES = 12, 5, 14
 MAX_FILE_BYTES = 512 * 1024
+# the server's import limits (backend/app/main.py), checked here so a lesson can't pass check
+# and then fail to upload
+MAX_TITLE, MAX_SUMMARY, MAX_QUESTION, MAX_HEADING, MAX_NARRATION, MAX_CODE_CHARS = 200, 400, 300, 200, 1200, 4000
+MAX_UPLOAD_BYTES = 300_000
 
 SKIP_DIRS = {
     ".git", "node_modules", "vendor", "dist", "build", "out", ".next", ".nuxt", "target", "__pycache__",
@@ -138,6 +142,11 @@ def allowed_files(root: Path) -> tuple[dict[str, Path], dict[str, str]]:
         if path is None:
             no[rel] = "points outside the repository"
             continue
+        # a link with an innocent name ("config.txt") may point at ".env": check where it lands
+        target = str(path.relative_to(root.resolve())).replace(os.sep, "/")
+        if target != rel and (why := blocked(target)):
+            no[rel] = f"links to {target} ({why})"
+            continue
         if path.stat().st_size > MAX_FILE_BYTES:
             no[rel] = "too big"
             continue
@@ -159,11 +168,17 @@ def read_lines(path: Path) -> list[str] | None:
 
 def keep_out_of_git(root: Path) -> None:
     """The storyboard draft lives in .video-learn/; keep it out of commits (locally only)."""
-    exclude = root / ".git" / "info" / "exclude"
-    if exclude.parent.is_dir():
-        text = exclude.read_text() if exclude.exists() else ""
-        if ".video-learn/" not in text.split():
-            exclude.write_text(text + ("" if text.endswith("\n") or not text else "\n") + ".video-learn/\n")
+    try:
+        # .git is a file in a worktree or submodule; git knows where the real exclude file is
+        exclude = Path(git(root, "rev-parse", "--git-path", "info/exclude").strip())
+    except (Problem, FileNotFoundError):
+        return
+    if not exclude.is_absolute():
+        exclude = root / exclude
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    text = exclude.read_text() if exclude.exists() else ""
+    if ".video-learn/" not in text.split():
+        exclude.write_text(text + ("" if text.endswith("\n") or not text else "\n") + ".video-learn/\n")
 
 
 # ---------------------------------------------------------------- the storyboard
@@ -218,6 +233,34 @@ def clean_path(p: str) -> str:
     return p.lstrip("/")
 
 
+def text_problems(board: dict, question: str) -> list[str]:
+    """Secrets and sizes in everything that will be sent, not only the cited code."""
+    out = []
+    fields = [("The title", board["title"]), ("The summary", board["summary"]), ("The question", question)]
+    for n, s in enumerate(board["scenes"], 1):
+        fields += [(f"Scene {n}'s heading", s["heading"]), (f"Scene {n}'s subheading", s["subheading"]),
+                   (f"Scene {n}'s narration", s["narration"])]
+        fields += [(f"Scene {n}, item {k}", f"{it['text']} {it['detail']}") for k, it in enumerate(s["items"], 1)]
+        if len(s["narration"]) > MAX_NARRATION:
+            out.append(f"Scene {n}'s narration is {len(s['narration'])} characters; keep it under {MAX_NARRATION}.")
+        if len(s["heading"]) > MAX_HEADING:
+            out.append(f"Scene {n}'s heading is too long; keep it under {MAX_HEADING} characters.")
+        if len(s["code"]) > MAX_CODE_CHARS:
+            out.append(f"Scene {n} shows {len(s['code'])} characters of code; the limit is {MAX_CODE_CHARS}. Cite fewer or shorter lines.")
+    if len(board["title"]) > MAX_TITLE:
+        out.append(f"The title is too long; keep it under {MAX_TITLE} characters.")
+    if len(board["summary"]) > MAX_SUMMARY:
+        out.append(f"The summary is too long; keep it under {MAX_SUMMARY} characters.")
+    if len(question) > MAX_QUESTION:
+        out.append(f"The question is too long; keep it under {MAX_QUESTION} characters.")
+    for where, text in fields:
+        for label, rx in SECRET_RES:
+            if rx.search(text or ""):
+                out.append(f"{where} seems to contain {label}. Remove it.")
+                break
+    return out
+
+
 def ground(board: dict, root: Path, files: dict[str, Path]) -> tuple[dict, list[str]]:
     """Fill code scenes with the real lines and list every citation that doesn't hold."""
     problems: list[str] = []
@@ -266,7 +309,8 @@ def repo_link(root: Path, cited: set[str]) -> tuple[str, str]:
         url = git(root, "remote", "get-url", "origin").strip()
         m = re.search(r"github\.com[:/]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?$", url)
         sha = git(root, "rev-parse", "HEAD").strip()
-        pushed = git(root, "branch", "-r", "--contains", "HEAD").strip()
+        # the commit must be on origin, the remote the links point at (not only on upstream)
+        pushed = [b.strip() for b in git(root, "branch", "-r", "--contains", "HEAD").split("\n") if b.strip().startswith("origin/")]
         changed = git(root, "status", "--porcelain", "--", *sorted(cited)).strip() if cited else ""
     except (Problem, FileNotFoundError):
         return "", ""
@@ -295,11 +339,18 @@ def cmd_scan(args: argparse.Namespace) -> int:
     if args.diff is not None:
         base = args.diff or default_base(root)
         merge_base = git(root, "merge-base", base, "HEAD").strip()
-        names = [n for n in git(root, "diff", "--name-only", merge_base).split("\n") if n and n in files]
+        changed = [n for n in git(root, "diff", "--name-only", merge_base).split("\n") if n]
+        names = [n for n in changed if n in files]
         untracked = [n for n in git(root, "ls-files", "--others", "--exclude-standard").split("\n") if n and n in files]
+        deleted = [n for n in git(root, "diff", "--name-only", "--diff-filter=D", merge_base).split("\n")
+                   if n and not blocked(n)]
         print(f"\nChanged since {base} (merge base {merge_base[:7]}), committed or not:")
         for n in names + [u for u in untracked if u not in names]:
             print("  " + n)
+        if deleted:
+            print("\nDeleted (explain them from the diff; they can't be cited as current files):")
+            for n in deleted:
+                print("  " + n)
         print(f"\nSee each change with: git diff {merge_base[:12]} -- <file>")
     return 0
 
@@ -314,7 +365,7 @@ def default_base(root: Path) -> str:
     raise Problem("Couldn't find a base branch. Pass one: scan --diff main")
 
 
-def load_and_ground(path: str) -> tuple[dict, list[str], Path, dict[str, Path]]:
+def load_and_ground(path: str, question: str = "") -> tuple[dict, list[str], Path, dict[str, Path]]:
     root = repo_root()
     files, _ = allowed_files(root)
     try:
@@ -322,11 +373,12 @@ def load_and_ground(path: str) -> tuple[dict, list[str], Path, dict[str, Path]]:
     except (OSError, json.JSONDecodeError) as exc:
         raise Problem(f"Couldn't read {path}: {exc}") from exc
     board, problems = ground(normalize(raw), root, files)
+    problems += text_problems(board, question or board["title"])
     return board, problems, root, files
 
 
 def cmd_check(args: argparse.Namespace) -> int:
-    board, problems, _, _ = load_and_ground(args.file)
+    board, problems, _, _ = load_and_ground(args.file, args.question)
     if problems:
         print("Fix these, then check again:\n- " + "\n- ".join(problems))
         return 2
@@ -336,7 +388,7 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 
 def cmd_publish(args: argparse.Namespace) -> int:
-    board, problems, root, _ = load_and_ground(args.file)
+    board, problems, root, _ = load_and_ground(args.file, args.question)
     if problems:
         print("Not uploaded. Fix these first:\n- " + "\n- ".join(problems))
         return 2
@@ -345,8 +397,27 @@ def cmd_publish(args: argparse.Namespace) -> int:
     payload = {"storyboard": board, "question": args.question or board["title"], "repo": repo, "sha": sha,
                "client": f"lesson-skill/{VERSION}"}
     body = json.dumps(payload).encode()
+    if len(body) > MAX_UPLOAD_BYTES:
+        print(f"Not uploaded: the lesson is {len(body):,} bytes; the limit is {MAX_UPLOAD_BYTES:,}. Shorten it.")
+        return 2
     shown = sum(len(s["code"].split("\n")) for s in board["scenes"] if s["code"])
-    print(f"Would upload to {SERVER}:")
+    print("Everything that would be sent, exactly:\n")
+    print(f"Question: {payload['question']}")
+    print(f"Title: {board['title']}")
+    if board["summary"]:
+        print(f"Summary: {board['summary']}")
+    for n, s in enumerate(board["scenes"], 1):
+        print(f"\n--- Scene {n} ({s['layout']}): {s['heading']}" + (f" / {s['subheading']}" if s["subheading"] else ""))
+        for it in s["items"]:
+            print(f"  * {it['text']}" + (f" ({it['detail']})" if it["detail"] else "") + (f" [line {it['line']}]" if it["line"] else ""))
+        if s["source"]["path"]:
+            print(f"  source: {s['source']['path']} lines {s['source']['start_line']}-{s['source']['end_line']}")
+        if s["code"]:
+            print("  code:")
+            for ln in s["code"].split("\n"):
+                print("    | " + ln)
+        print(f"  narration: {s['narration']}")
+    print(f"\nSummary: would upload to {SERVER}:")
     print(f"  {len(board['scenes'])} scenes, {len(body):,} bytes, showing {shown} lines of code from {len(cited)} files:")
     for p in sorted(cited):
         ranges = [f"{s['source']['start_line']}-{s['source']['end_line']}" for s in board["scenes"] if s["source"]["path"] == p]
@@ -384,6 +455,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--diff", nargs="?", const="", default=None, metavar="BASE")
     c = sub.add_parser("check")
     c.add_argument("file")
+    c.add_argument("--question", default="")
     p = sub.add_parser("publish")
     p.add_argument("file")
     p.add_argument("--question", default="")
