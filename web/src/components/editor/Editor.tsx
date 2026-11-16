@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { githubUrl } from "@/lib/api"
 import { deleteScene, duplicateScene, insertScene, moveScene, updateScene } from "@/lib/edit"
 import { buildTimeline, captionAt, clock, sceneAt } from "@/lib/timing"
 import { usePlayback } from "@/lib/usePlayback"
@@ -114,6 +115,12 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-medium">{board.title}</h1>
           <p className="truncate text-[11px] text-muted-foreground">
+            {host.repo ? (
+              <a href={githubUrl(host.repo)} target="_blank" rel="noreferrer" className="font-mono hover:text-foreground hover:underline">
+                {host.repo.name}@{host.repo.sha.slice(0, 7)}
+              </a>
+            ) : null}
+            {host.repo ? " · " : ""}
             {board.scenes.length} scenes · {clock(timeline.total)}
           </p>
         </div>
@@ -270,6 +277,7 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
                 {activeScene && editable ? (
                   <SceneInspector
                     scene={activeScene}
+                    repo={host.repo}
                     index={activeIndex}
                     count={board.scenes.length}
                     voice={host.voiceState(activeScene.id)}

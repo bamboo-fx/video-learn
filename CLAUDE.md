@@ -1,9 +1,12 @@
 # Video Learn
 
-Type a topic (and paste your notes, if you have them), get a short narrated lesson you can
-watch and edit like a video. Claude writes the lesson as a storyboard of scenes; ElevenLabs
-voices each scene; the browser plays it with captions synced to the voice. You fix it by
-hand on a timeline, or ask the AI to change one scene at a time.
+Paste a public GitHub repository and say what you want to understand; get a short narrated
+lesson that walks through the real code, which you can watch and edit like a video. Claude
+reads the repository with tools and writes the lesson as a storyboard of scenes; every code
+scene cites a file and line range, and the server fills in the real lines; ElevenLabs voices
+each scene; the browser plays it with captions synced to the voice. You fix it by hand on a
+timeline, or ask the AI to change one scene at a time. (Topic lessons without a repository
+still work in the API; the page only offers repositories since slices 13 to 15.)
 
 Final project for ENGR 190BO (AI-Amplified Prototyping, HMC, Fall 2026). The project
 brief's requirements and rubric are the spec: https://course.aiprototypes.org/resources/
@@ -35,6 +38,17 @@ scenes that changed get re-voiced and the person can still tweak everything by h
   `cd web && npx tsc -b`.
 - Paid calls: never run a real Claude or ElevenLabs call (beyond one smoke test) without
   Kevin's OK.
+
+## Grounding
+
+- Claude never types code that goes on screen. A code scene names `source` (path and lines)
+  and `grounding.ground()` copies the lines from the downloaded repository, on every write,
+  AI edit and hand save. A citation that doesn't hold turns the scene into a points scene.
+- Repositories are read once per commit (`github.download`, one tarball) and stored gzipped
+  in `RepoSnapshot`. Claude's tools (`list_files`, `read_file`, `search`) read that snapshot.
+- The example lesson (`/demo`) is built from `shared/demo-lesson.source.json` by
+  `backend/scripts/build_demo.py` (anchors resolved at a fixed commit) and voiced once by
+  `backend/scripts/voice_demo.py` (spends ElevenLabs credits; audio ships in `web/public`).
 
 ## Rules
 
@@ -71,7 +85,12 @@ Add a line here each time the agent makes a mistake worth not repeating, with th
 - 2026-11-15: A local SQLite file (`backend/video-learn.db`) was committed with `git add backend`.
   `*.db` is ignored now. Stage paths you mean, and read `git status` before every commit.
 - 2026-11-15: Tests share one database, and voice clips are cached by text, so a test that wants
-  a voice *failure* must use narration no other test voiced.
+  a voice *failure* must use narration no other test voiced. Same for daily limits: a test that
+  writes many lessons should use its own X-Owner.
+- 2026-11-16: `create_all` never adds columns to an existing table, and production Postgres
+  already had `project`. New columns go through `db.add_missing_columns` (additive only).
+- 2026-11-16: Switching branches under a running Vite server broke its module graph (the older
+  branches had no `web/`). Restart Vite after checking out a branch without the web app.
 
 ## Skills
 

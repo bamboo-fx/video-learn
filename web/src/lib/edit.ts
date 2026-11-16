@@ -8,7 +8,8 @@ export const LAYOUT_LABELS: Record<Layout, string> = {
   compare: "Compare two",
   definition: "Definition",
   example: "Worked example",
-  code: "Code",
+  code: "Code from the repo",
+  flow: "How it connects",
   summary: "Summary",
 }
 
@@ -28,8 +29,9 @@ export function insertScene(board: Storyboard, afterId: string | null): { board:
     layout: "points",
     heading: "New scene",
     subheading: "",
-    items: [{ text: "A first point", detail: "", at: 0 }],
+    items: [{ text: "A first point", detail: "", at: 0, line: 0 }],
     code: "",
+    source: { path: "", start_line: 0, end_line: 0 },
     narration: "Say what this scene is about here.",
   }
   const i = afterId ? board.scenes.findIndex((s) => s.id === afterId) : board.scenes.length - 1

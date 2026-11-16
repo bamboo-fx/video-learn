@@ -1,12 +1,12 @@
 /** Edit one scene by hand: layout, text on screen, when each item appears, narration. */
-import { ArrowDown, ArrowUp, Copy, Loader2, Mic, Plus, Trash2, X } from "lucide-react"
+import { ArrowDown, ArrowUp, Copy, ExternalLink, Loader2, Mic, Plus, Trash2, X } from "lucide-react"
 import { useId } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import type { Item, Layout, Scene } from "@/lib/api"
+import { githubUrl, type Item, type Layout, type RepoRef, type Scene } from "@/lib/api"
 import { LAYOUT_LABELS } from "@/lib/edit"
 import { sentenceSpans, wordCount } from "@/lib/timing"
 import { cn } from "@/lib/utils"
@@ -15,6 +15,8 @@ import type { VoiceState } from "./types"
 
 interface Props {
   scene: Scene
+  /** set when the lesson teaches a repository: code comes from the file, not from typing */
+  repo?: RepoRef
   index: number
   count: number
   voice: VoiceState
@@ -25,8 +27,10 @@ interface Props {
   onDelete: () => void
 }
 
-export function SceneInspector({ scene, index, count, voice, onChange, onVoice, onMove, onDuplicate, onDelete }: Props) {
-  const ids = { layout: useId(), heading: useId(), sub: useId(), code: useId(), narration: useId() }
+export function SceneInspector({ scene, repo, index, count, voice, onChange, onVoice, onMove, onDuplicate, onDelete }: Props) {
+  const ids = { layout: useId(), heading: useId(), sub: useId(), code: useId(), narration: useId(), path: useId() }
+  const src = scene.source
+  const setSource = (patch: Partial<Scene["source"]>) => onChange({ source: { ...src, ...patch } })
   const spans = sentenceSpans(scene.narration)
   const sentenceLabels = spans.map(([a, b], i) => `${i + 1}. ${scene.narration.slice(a, b).split(/\s+/).slice(0, 6).join(" ")}…`)
   const words = wordCount(scene.narration)
@@ -78,7 +82,35 @@ export function SceneInspector({ scene, index, count, voice, onChange, onVoice, 
         <Input id={ids.sub} value={scene.subheading} maxLength={120} onChange={(e) => onChange({ subheading: e.target.value })} />
       </Field>
 
-      {scene.layout === "code" ? (
+      {repo ? (
+        <fieldset className="flex flex-col gap-1.5">
+          <div className="flex items-baseline justify-between">
+            <label htmlFor={ids.path} className="text-xs font-medium text-muted-foreground">
+              Source in the repo
+            </label>
+            {src.path ? (
+              <a
+                href={githubUrl(repo, src.path, src.start_line, src.end_line)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-[11px] text-ember hover:underline"
+              >
+                Open on GitHub <ExternalLink className="size-3" aria-hidden />
+              </a>
+            ) : null}
+          </div>
+          <Input id={ids.path} value={src.path} placeholder="path/to/file.py" className="h-8 font-mono text-xs" onChange={(e) => setSource({ path: e.target.value.trim() })} />
+          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+            <span>Lines</span>
+            <Input type="number" min={0} value={src.start_line || ""} aria-label="First line" className="h-7 w-20 text-xs" onChange={(e) => setSource({ start_line: Number(e.target.value) || 0 })} />
+            <span>to</span>
+            <Input type="number" min={0} value={src.end_line || ""} aria-label="Last line" className="h-7 w-20 text-xs" onChange={(e) => setSource({ end_line: Number(e.target.value) || 0 })} />
+          </div>
+          {scene.layout === "code" ? (
+            <p className="text-[11px] text-muted-foreground">The code shown is read from this file when you save, so it's always exact (14 lines at most).</p>
+          ) : null}
+        </fieldset>
+      ) : scene.layout === "code" ? (
         <Field label="Code" htmlFor={ids.code} hint="Up to 14 lines">
           <Textarea id={ids.code} value={scene.code} rows={6} className="font-mono text-xs" onChange={(e) => onChange({ code: e.target.value })} />
         </Field>
@@ -108,6 +140,20 @@ export function SceneInspector({ scene, index, count, voice, onChange, onVoice, 
                 onChange={(e) => setItem(i, { detail: e.target.value })}
                 className="mt-1.5 h-8 text-xs"
               />
+              {scene.layout === "code" ? (
+                <div className="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <span className="shrink-0">Highlights line</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={item.line || ""}
+                    placeholder="none"
+                    aria-label={`Line item ${i + 1} highlights`}
+                    className="h-7 w-20 text-xs"
+                    onChange={(e) => setItem(i, { line: Number(e.target.value) || 0 })}
+                  />
+                </div>
+              ) : null}
               <div className="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
                 <span className="shrink-0">Appears on</span>
                 <Select value={String(Math.min(item.at, spans.length - 1))} onValueChange={(v) => setItem(i, { at: Number(v) })}>
@@ -130,7 +176,7 @@ export function SceneInspector({ scene, index, count, voice, onChange, onVoice, 
               variant="outline"
               size="sm"
               className="self-start"
-              onClick={() => onChange({ items: [...scene.items, { text: "New point", detail: "", at: Math.max(0, spans.length - 1) }] })}
+              onClick={() => onChange({ items: [...scene.items, { text: "New point", detail: "", at: Math.max(0, spans.length - 1), line: 0 }] })}
             >
               <Plus /> Add item
             </Button>

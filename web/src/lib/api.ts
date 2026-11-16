@@ -34,6 +34,11 @@ export interface Project {
   status: "new" | "writing" | "ready" | "failed"
   error: string
   storyboard: Storyboard | null
+  /** "owner/repo" when the lesson teaches a codebase, at commit repo_sha */
+  repo: string
+  repo_sha: string
+  /** what Claude is doing while it writes, newest last */
+  progress: string[]
   voices: Record<string, Voice>
   is_owner: boolean
   created_at: string
@@ -44,6 +49,7 @@ export interface ProjectSummary {
   id: string
   title: string
   topic: string
+  repo: string
   status: Project["status"]
   scenes: number
   updated_at: string
@@ -117,7 +123,7 @@ export const api = {
   config: () => request<{ ai: boolean; voice: boolean }>("GET", "/api/config"),
   list: () => request<{ projects: ProjectSummary[] }>("GET", "/api/projects").then((r) => r.projects),
   get: (id: string) => request<Project>("GET", `/api/projects/${id}`),
-  create: (input: { topic: string; notes: string; level: string; minutes: number }) =>
+  create: (input: { topic: string; repo: string; notes: string; level: string; minutes: number }) =>
     request<Project>("POST", "/api/projects", input),
   write: (id: string) => request<Project>("POST", `/api/projects/${id}/write`),
   save: (id: string, storyboard: Storyboard) => request<Project>("PUT", `/api/projects/${id}/storyboard`, { storyboard }),
@@ -125,4 +131,26 @@ export const api = {
   edit: (id: string, instruction: string, sceneId: string | null) =>
     request<EditResult>("POST", `/api/projects/${id}/edit`, { instruction, scene_id: sceneId }),
   remove: (id: string) => request<void>("DELETE", `/api/projects/${id}`),
+}
+
+// ---------------------------------------------------------------- repositories
+
+export interface RepoRef {
+  name: string // owner/repo
+  sha: string
+}
+
+const REPO_URL = /^\s*(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?(?:\/.*)?\s*$/
+const REPO_SHORT = /^\s*([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\s*$/
+
+/** "github.com/o/r/tree/main" or "o/r" -> "o/r"; null if it isn't a GitHub repository. */
+export function parseRepo(text: string): string | null {
+  const m = text.match(REPO_URL) ?? text.match(REPO_SHORT)
+  return m ? `${m[1]}/${m[2]}` : null
+}
+
+export function githubUrl(repo: RepoRef, path = "", start = 0, end = 0): string {
+  if (!path) return `https://github.com/${repo.name}/tree/${repo.sha}`
+  const lines = start ? `#L${start}${end && end !== start ? `-L${end}` : ""}` : ""
+  return `https://github.com/${repo.name}/blob/${repo.sha}/${path}${lines}`
 }

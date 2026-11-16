@@ -68,6 +68,12 @@ export function Stage({ scene, shown, index, count, lessonTitle, caption, thumb,
               ) : null}
             </div>
           )}
+          {!thumb && scene?.source?.path && scene.layout !== "code" ? (
+            <div className="absolute top-[640px] left-[104px] font-mono text-[18px] text-ink-soft">
+              <span className="text-stage-accent">↳</span> {scene.source.path}
+              <span className="text-ink-soft/70"> · lines {scene.source.start_line}–{scene.source.end_line}</span>
+            </div>
+          ) : null}
           {!thumb && caption ? (
             <div className="absolute right-0 bottom-[34px] left-0 flex justify-center px-[120px]">
               <p
@@ -140,6 +146,8 @@ function SceneBody({ scene, shown, thumb }: { scene: Scene; shown?: boolean[]; t
       return <ExampleLayout {...props} />
     case "code":
       return <CodeLayout {...props} />
+    case "flow":
+      return <FlowLayout {...props} />
     case "summary":
       return <SummaryLayout {...props} />
     default:
@@ -295,34 +303,99 @@ function ExampleLayout({ scene, on, thumb }: LayoutProps) {
 }
 
 function CodeLayout({ scene, on, thumb }: LayoutProps) {
-  const lines = scene.code.split("\n").slice(0, 14)
+  const raw = scene.code.split("\n").slice(0, 14).map((l) => l.replace(/\t/g, "    "))
+  // drop the indentation every line shares, so a method deep in a class still fits
+  const indent = Math.min(...raw.filter((l) => l.trim()).map((l) => l.length - l.trimStart().length), 99)
+  const lines = raw.map((l) => l.slice(Math.min(indent, l.length - l.trimStart().length)))
+  const first = scene.source?.start_line || 1
+  const widest = Math.max(20, ...lines.map((l) => l.length))
+  const wide = widest > 56
   // shrink the code to fit its card: the widest line and the line count both decide
-  const widest = Math.max(20, ...lines.map((l) => l.replace(/\t/g, "    ").length))
-  const byWidth = Math.floor(540 / ((widest + 2.4) * 0.6))
-  const byHeight = Math.floor(400 / (Math.max(lines.length, 4) * 1.55))
-  const font = Math.max(14, Math.min(26, byWidth, byHeight))
+  const byWidth = Math.floor((wide ? 700 : 560) / ((widest + 3.2) * 0.6))
+  const byHeight = Math.floor(380 / (Math.max(lines.length, 4) * 1.55))
+  const font = Math.max(13, Math.min(26, byWidth, byHeight))
+  // lines named by the items that have appeared; the newest one is the strongest
+  const lit = scene.items.map((it, i) => (on(i) && it.line ? it.line : 0)).filter(Boolean)
+  const current = lit[lit.length - 1]
   return (
     <div className={frame}>
-      <Heading scene={scene} size={64} />
-      <div className="mt-[36px] grid flex-1 grid-cols-[1.45fr_1fr] gap-[36px]">
-        <pre className="overflow-hidden rounded-[24px] bg-ink p-[34px] font-mono leading-[1.55] text-paper shadow-xl" style={{ fontSize: font }}>
-          {lines.map((ln, i) => (
-            <div key={i} className="flex">
-              <span className="w-[2.2em] shrink-0 text-paper/35 tabular-nums">{i + 1}</span>
-              <code className="whitespace-pre">{ln || " "}</code>
+      <Heading scene={scene} size={58} />
+      <div className={cn("mt-[30px] grid flex-1 gap-[32px]", wide ? "grid-cols-[2.3fr_1fr]" : "grid-cols-[1.55fr_1fr]")}>
+        <div className="flex min-w-0 flex-col overflow-hidden rounded-[22px] bg-ink text-paper shadow-xl">
+          {scene.source?.path ? (
+            <div className="flex items-center gap-[10px] border-b border-paper/10 px-[26px] py-[12px] font-mono text-[17px] text-paper/70">
+              <span className="size-[10px] rounded-full bg-stage-accent" />
+              <span className="truncate">{scene.source.path}</span>
+              <span className="ml-auto shrink-0 text-paper/45">
+                {scene.source.start_line}–{scene.source.end_line}
+              </span>
             </div>
-          ))}
-        </pre>
-        <div className="flex flex-col justify-center gap-[24px]">
+          ) : null}
+          <pre className="flex-1 overflow-hidden px-[10px] py-[16px] font-mono leading-[1.55]" style={{ fontSize: font }}>
+            {lines.map((ln, i) => {
+              const n = first + i
+              const hot = n === current
+              const warm = !hot && lit.includes(n)
+              return (
+                <div
+                  key={i}
+                  className={cn(
+                    "flex rounded-[8px] px-[14px] transition-colors duration-300",
+                    hot ? "bg-stage-accent/30" : warm ? "bg-stage-accent/12" : "",
+                  )}
+                >
+                  <span className={cn("w-[2.6em] shrink-0 tabular-nums", hot ? "text-paper" : "text-paper/35")}>{n}</span>
+                  <code className="whitespace-pre">{ln || " "}</code>
+                </div>
+              )
+            })}
+          </pre>
+        </div>
+        <div className="flex flex-col justify-center gap-[22px]">
           {scene.items.map((item, i) => (
             <Reveal key={i} on={on(i)} thumb={thumb}>
-              <div className="flex gap-[18px]">
-                <span className="mt-[8px] h-[34px] w-[6px] shrink-0 rounded-full bg-stage-accent" />
-                <ItemText item={item} size={32} />
+              <div className="flex gap-[16px]">
+                <span className={cn("mt-[6px] h-[36px] w-[6px] shrink-0 rounded-full", item.line && item.line === current ? "bg-stage-accent" : "bg-ink-faint")} />
+                <div className="min-w-0">
+                  {item.line ? <p className="mb-[2px] font-mono text-[18px] text-stage-accent">line {item.line}</p> : null}
+                  <ItemText item={item} size={30} />
+                </div>
               </div>
             </Reveal>
           ))}
         </div>
+      </div>
+    </div>
+  )
+}
+
+function FlowLayout({ scene, on, thumb }: LayoutProps) {
+  const n = Math.max(1, scene.items.length)
+  const text = n > 4 ? 26 : 30
+  return (
+    <div className={frame}>
+      <Heading scene={scene} />
+      <div className="flex flex-1 items-center pb-[40px]">
+        {scene.items.map((item, i) => (
+          <div key={i} className="flex min-w-0 flex-1 items-start">
+            <Reveal on={on(i)} thumb={thumb} className="min-w-0 flex-1">
+              <div className="rounded-[22px] border-2 border-ink-faint bg-paper-deep/70 px-[22px] py-[24px]">
+                <p className="font-mono text-[18px] text-stage-accent">{String(i + 1).padStart(2, "0")}</p>
+                <p className="mt-[8px] leading-[1.2] font-medium" style={{ fontSize: text }}>
+                  {item.text}
+                </p>
+                {item.detail ? <p className="mt-[10px] truncate font-mono text-[18px] text-ink-soft">{item.detail}</p> : null}
+              </div>
+            </Reveal>
+            {i < scene.items.length - 1 ? (
+              <Reveal on={on(i + 1)} thumb={thumb} className="shrink-0 px-[10px] pt-[52px]">
+                <svg viewBox="0 0 40 20" className="h-[22px] w-[40px] text-stage-accent" aria-hidden>
+                  <path d="M2 10h32M26 3l8 7-8 7" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </Reveal>
+            ) : null}
+          </div>
+        ))}
       </div>
     </div>
   )

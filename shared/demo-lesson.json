@@ -1,0 +1,216 @@
+{
+  "repo": "bamboo-fx/video-learn",
+  "sha": "42b7cc89698a3b1910668bf62b9b69958c9f7c5e",
+  "storyboard": {
+    "title": "How Video Learn writes a lesson",
+    "summary": "What happens between pasting a GitHub link and watching a narrated lesson about it.",
+    "scenes": [
+      {
+        "id": "s1",
+        "layout": "title",
+        "heading": "How Video Learn writes a lesson",
+        "subheading": "From a GitHub link to a narrated walk through the code",
+        "items": [],
+        "code": "",
+        "source": {
+          "path": "",
+          "start_line": 0,
+          "end_line": 0
+        },
+        "narration": "You paste a link to a repository and ask a question. A couple of minutes later you're watching a lesson about that code. Here's what happens in between, using this app's own code as the example."
+      },
+      {
+        "id": "s2",
+        "layout": "flow",
+        "heading": "The path of one lesson",
+        "subheading": "",
+        "items": [
+          {
+            "text": "Download the code",
+            "detail": "github.py",
+            "at": 1,
+            "line": 0
+          },
+          {
+            "text": "Claude reads it",
+            "detail": "llm.py",
+            "at": 2,
+            "line": 0
+          },
+          {
+            "text": "Check every citation",
+            "detail": "grounding.py",
+            "at": 3,
+            "line": 0
+          },
+          {
+            "text": "Give it a voice",
+            "detail": "tts.py",
+            "at": 4,
+            "line": 0
+          }
+        ],
+        "code": "",
+        "source": {
+          "path": "backend/app/main.py",
+          "start_line": 346,
+          "end_line": 357
+        },
+        "narration": "It all starts in one request to the server. First the server downloads the repository. Then Claude reads the code and writes the lesson. Next, every line it cites is checked against the real files. Finally, each scene gets a voice."
+      },
+      {
+        "id": "s3",
+        "layout": "code",
+        "heading": "One download, one commit",
+        "subheading": "github dot py",
+        "items": [
+          {
+            "text": "The archive names the exact commit",
+            "detail": "",
+            "at": 1,
+            "line": 187
+          },
+          {
+            "text": "Vendored, binary and huge files are skipped",
+            "detail": "",
+            "at": 2,
+            "line": 193
+          },
+          {
+            "text": "Source code is kept before docs and tests",
+            "detail": "",
+            "at": 2,
+            "line": 199
+          }
+        ],
+        "code": "            snap.sha = (tar.pax_headers or {}).get(\"comment\", \"\")\n            members = {}\n            for member in tar.getmembers():\n                if not member.isfile():\n                    continue\n                path = member.name.split(\"/\", 1)[1] if \"/\" in member.name else member.name\n                if keep(path, member.size):\n                    members[path] = member\n                else:\n                    snap.skipped += 1\n            # When the repository is bigger than the budget, keep the code that explains it first.\n            total = 0\n            for path in sorted(members, key=rank):",
+        "source": {
+          "path": "backend/app/github.py",
+          "start_line": 187,
+          "end_line": 199
+        },
+        "narration": "Instead of fetching files one by one, the server downloads the whole repository as a single archive from GitHub. That archive carries the full commit id, so every lesson is tied to one exact version of the code. Vendored folders, binaries and huge files are skipped, and when a repository is too big, source files are kept before docs and tests."
+      },
+      {
+        "id": "s4",
+        "layout": "code",
+        "heading": "Claude hands in its work",
+        "subheading": "llm dot py",
+        "items": [
+          {
+            "text": "Claude submits the lesson as a tool call",
+            "detail": "",
+            "at": 0,
+            "line": 498
+          },
+          {
+            "text": "The server checks it against the code",
+            "detail": "",
+            "at": 1,
+            "line": 506
+          },
+          {
+            "text": "Problems go back to Claude to fix",
+            "detail": "",
+            "at": 2,
+            "line": 509
+          }
+        ],
+        "code": "                if use.name == \"submit_lesson\":\n                    submissions += 1\n                    progress(\"Checking every citation against the code\")\n                    try:\n                        board = Storyboard.model_validate(args)\n                    except ValidationError as exc:\n                        results.append({\"type\": \"tool_result\", \"tool_use_id\": use.id, \"is_error\": True, \"content\": f\"The lesson doesn't fit the schema: {exc.errors()[0]['msg']} at {exc.errors()[0]['loc']}.\"})\n                        continue\n                    issues = grounding.problems(board, snap)\n                    if not issues or submissions >= 3:\n                        return grounding.ground(board, snap), calls\n                    results.append({\"type\": \"tool_result\", \"tool_use_id\": use.id, \"is_error\": True, \"content\": \"Fix these and submit again:\\n- \" + \"\\n- \".join(issues)})",
+        "source": {
+          "path": "backend/app/llm.py",
+          "start_line": 498,
+          "end_line": 509
+        },
+        "narration": "Claude reads files with three tools, then hands in the finished lesson through a fourth one. The server doesn't just accept it. It checks every file and line range Claude cited, and if something doesn't hold up, the problems go back to Claude to fix and submit again."
+      },
+      {
+        "id": "s5",
+        "layout": "code",
+        "heading": "The code on screen is never typed",
+        "subheading": "grounding dot py",
+        "items": [
+          {
+            "text": "Code scenes cite a file and line range",
+            "detail": "",
+            "at": 0,
+            "line": 57
+          },
+          {
+            "text": "The real lines are copied from the file",
+            "detail": "",
+            "at": 1,
+            "line": 60
+          }
+        ],
+        "code": "        elif scene.layout == \"code\":\n            end = min(src.end_line, src.start_line + MAX_CODE_LINES - 1)\n            scene.source = Source(path=src.path, start_line=src.start_line, end_line=end)\n            scene.code = \"\\n\".join(lines(snap, src.path)[src.start_line - 1 : end])\n            for item in scene.items:\n                if item.line and not (src.start_line <= item.line <= end):\n                    item.line = 0\n        scenes.append(scene)",
+        "source": {
+          "path": "backend/app/grounding.py",
+          "start_line": 57,
+          "end_line": 64
+        },
+        "narration": "Here's the rule that keeps a lesson honest. Claude never writes the code you see; it only says which file and which lines. The server copies those exact lines out of the repository, so what's on screen is always what's really there."
+      },
+      {
+        "id": "s6",
+        "layout": "code",
+        "heading": "Captions that follow the voice",
+        "subheading": "tts dot py",
+        "items": [
+          {
+            "text": "ElevenLabs times every character",
+            "detail": "",
+            "at": 0,
+            "line": 54
+          },
+          {
+            "text": "Characters are grouped into words",
+            "detail": "",
+            "at": 1,
+            "line": 63
+          }
+        ],
+        "code": "def words_from_alignment(text: str, alignment: dict[str, Any]) -> list[dict[str, Any]]:\n    \"\"\"Group per-character timings into words, with each word's place in the text.\"\"\"\n    chars: list[str] = alignment.get(\"characters\") or []\n    starts: list[float] = alignment.get(\"character_start_times_seconds\") or []\n    ends: list[float] = alignment.get(\"character_end_times_seconds\") or []\n    if not chars or len(chars) != len(starts) or len(chars) != len(ends):\n        return []\n\n    spoken = \"\".join(chars)\n    words = []\n    if spoken == text:\n        for m in re.finditer(r\"\\S+\", text):\n            a, b = m.start(), m.end() - 1\n            words.append({\"text\": m.group(), \"start_char\": m.start(), \"end_char\": m.end(), \"start\": round(starts[a], 3), \"end\": round(ends[b], 3)})",
+        "source": {
+          "path": "backend/app/tts.py",
+          "start_line": 52,
+          "end_line": 65
+        },
+        "narration": "When ElevenLabs reads a scene aloud, it also returns when each character is spoken. This function groups those characters into words, which is how the captions and the highlighted lines keep pace with the voice."
+      },
+      {
+        "id": "s7",
+        "layout": "summary",
+        "heading": "What to remember",
+        "subheading": "",
+        "items": [
+          {
+            "text": "One archive, one exact commit",
+            "detail": "",
+            "at": 0,
+            "line": 0
+          },
+          {
+            "text": "Claude cites lines; the server copies them",
+            "detail": "",
+            "at": 1,
+            "line": 0
+          },
+          {
+            "text": "Word timings keep captions in sync",
+            "detail": "",
+            "at": 2,
+            "line": 0
+          }
+        ],
+        "code": "",
+        "source": {
+          "path": "",
+          "start_line": 0,
+          "end_line": 0
+        },
+        "narration": "So, three things. Each lesson is tied to one exact commit. Claude cites the code and the server copies it, so nothing on screen is invented. And word timings from the voice keep everything in step."
+      }
+    ]
+  }
+}
