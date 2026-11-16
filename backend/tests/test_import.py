@@ -93,3 +93,36 @@ def test_secret_scanner():
     assert secrets_scan.find_secret("postgres://user:hunter2hunter2@db/app") == "a password or key in a URL"
     assert secrets_scan.find_secret("def get_api_key(): return os.environ['API_KEY']") is None
     assert secrets_scan.find_secret("The token is checked before every request.") is None
+
+
+def test_title_summary_and_question_are_scanned_too(client, example):
+    leaked = json.loads(json.dumps(example))
+    leaked["summary"] = "Uses sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789 to call Claude."
+    r = imported(client, leaked)
+    assert r.status_code == 422 and "The summary" in r.json()["error"]["message"]
+    r = client.post("/api/import", json={"storyboard": example, "question": "why ghp_" + "a" * 36}, headers={"X-Forwarded-For": "203.0.113.9"})
+    assert r.status_code == 422 and "The question" in r.json()["error"]["message"]
+
+
+def test_the_size_limit_counts_bytes_even_without_a_length_header(client, example):
+    big = json.loads(json.dumps(example))
+    big["scenes"][0]["narration"] = "word " * 80_000
+    body = json.dumps({"storyboard": big, "question": "Too big?"}).encode()
+
+    def chunks():
+        for i in range(0, len(body), 16_384):
+            yield body[i : i + 16_384]
+
+    r = client.post("/api/import", content=chunks(), headers={"Content-Type": "application/json", "X-Forwarded-For": "203.0.113.10"})
+    assert r.status_code == 413 and r.json()["error"]["code"] == "too_big"
+
+
+def test_hand_saves_keep_a_local_lessons_code(client, example, owner, monkeypatch):
+    from app import github, main
+
+    body = imported(client, example, repo="octo/tiny", sha="b" * 40).json()
+    client.post(f"/api/projects/{body['id']}/claim", json={"token": body["url"].split("claim=")[1]}, headers=owner)
+    # another lesson cached a trimmed copy of the same commit
+    main.remember(github.Snapshot("octo", "tiny", "b" * 40, "main", "", {"README.md": "x\n"}))
+    saved = client.put(f"/api/projects/{body['id']}/storyboard", json={"storyboard": example}, headers=owner).json()
+    assert saved["storyboard"]["scenes"][5]["code"] == example["scenes"][5]["code"]

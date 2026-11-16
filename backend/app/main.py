@@ -39,6 +39,45 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Video Learn", lifespan=lifespan)
 
 
+class LimitImportBody:
+    """Read an import body before anything parses it, refusing it as soon as it passes the
+    limit. Counting the bytes (not trusting Content-Length) also covers chunked uploads."""
+
+    def __init__(self, app, limit: int):
+        self.app, self.limit = app, limit
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["method"] != "POST" or scope["path"] != "/api/import":
+            return await self.app(scope, receive, send)
+        chunks, size, more = [], 0, True
+        while more:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            chunk = message.get("body", b"")
+            size += len(chunk)
+            if size > self.limit:
+                await JSONResponse({"error": {"code": "too_big", "message": "That lesson is too large to upload."}},
+                                   status_code=413)(scope, receive, send)
+                return
+            chunks.append(chunk)
+            more = message.get("more_body", False)
+        body = b"".join(chunks)
+        sent = False
+
+        async def replay():
+            nonlocal sent
+            if sent:
+                return await receive()
+            sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        await self.app(scope, replay, send)
+
+
+app.add_middleware(LimitImportBody, limit=300_000)
+
+
 # ---------------------------------------------------------------- errors
 
 
@@ -268,7 +307,11 @@ def save_storyboard(project_id: str, body: StoryboardIn, session: SessionDep, ow
         raise ApiError(409, "being_written", "This lesson is being written. Your changes can be saved once it's done.")
     try:
         board = normalize(Storyboard.model_validate(body.storyboard))
-        if project.repo and project.repo_sha and (snap := load_snapshot(session, f"{project.repo}@{project.repo_sha}")):
+        # Re-ground only lessons whose code came from a snapshot (written here, or through the
+        # connector). A /lesson upload's code came from the person's own files, which the
+        # server doesn't have; a cached snapshot of the same commit may be trimmed.
+        if ((project.origin or "web") != "local" and project.repo and project.repo_sha
+                and (snap := load_snapshot(session, f"{project.repo}@{project.repo_sha}"))):
             board = grounding.ground(board, snap, hand=True)  # code on screen always comes from the file
     except ValidationError as exc:
         first = exc.errors()[0]
@@ -647,8 +690,14 @@ def client_key(request: Request) -> str:
     return "addr:" + hashlib.sha256(ip.encode()).hexdigest()[:24]
 
 
-def check_lesson_content(board: Storyboard) -> None:
-    """Size and secret checks for a lesson whose text and code came from outside the server."""
+def check_lesson_content(board: Storyboard, question: str = "") -> None:
+    """Size and secret checks for a lesson whose text and code came from outside the server.
+    Everything that will be shown is checked: the title, summary and question too."""
+    if len(board.title) > 200 or len(board.summary) > 400:
+        raise ApiError(422, "too_big", "The title must be under 200 characters and the summary under 400.")
+    for label, text in (("The title", board.title), ("The summary", board.summary), ("The question", question)):
+        if found := secrets_scan.find_secret(text):
+            raise ApiError(422, "looks_like_a_secret", f"{label} seems to contain {found}. It wasn't saved.")
     for i, scene in enumerate(board.scenes, 1):
         fields = [scene.heading, scene.subheading, scene.narration, scene.code] + [f"{it.text} {it.detail}" for it in scene.items]
         if len(scene.narration) > 1200 or len(scene.heading) > 200 or len(scene.code) > 4000 or scene.code.count("\n") >= 14:
@@ -663,7 +712,7 @@ def create_imported(session: Session, board: Storyboard, question: str, origin: 
                     repo: str = "", repo_sha: str = "") -> dict[str, Any]:
     """Store a finished lesson made by someone's own Claude, owned by nobody until its
     one-time claim link is opened. Costs no AI; voicing waits for the owner to click Voice."""
-    check_lesson_content(board)
+    check_lesson_content(board, question)
     who = client_key(request)
     try:
         usage_id = limits.reserve(session, who, "-", "import", "none", origin)
@@ -697,8 +746,6 @@ def import_lesson(body: ImportIn, request: Request, session: SessionDep):
     """A lesson from the /lesson skill: the person's own Claude Code researched their code, and
     the skill already filled every code scene from their files and refused secret files. Only
     the storyboard (with the cited lines) arrives here, never the repository."""
-    if int(request.headers.get("content-length") or 0) > MAX_IMPORT_BYTES:
-        raise ApiError(413, "too_big", "That lesson is too large to upload.")
     try:
         board = normalize(Storyboard.model_validate(body.storyboard))
     except ValidationError as exc:
