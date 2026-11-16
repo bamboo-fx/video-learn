@@ -23,7 +23,7 @@ const RULES: [RegExp, (m: RegExpMatchArray) => Step][] = [
   [/^Checking/, () => ({ icon: ShieldCheck, verb: "Checking every citation against the code", kind: "other" })],
 ]
 
-export function parseStep(line: string): Step {
+function parseStep(line: string): Step {
   for (const [re, make] of RULES) {
     const m = line.match(re)
     if (m) return make(m)
@@ -43,8 +43,21 @@ function useElapsed() {
 export function AgentTrace({ lines, className }: { lines: string[]; className?: string }) {
   const steps = lines.map(parseStep)
   const elapsed = useElapsed()
-  const files = new Set(steps.filter((s) => s.kind === "file").map((s) => s.target)).size
-  const searches = steps.filter((s) => s.kind === "search").length
+  // Running totals for the whole write: the server keeps a long but finite list of lines, so
+  // remember what this page has seen and the counts never go down.
+  const [seen, setSeen] = useState({ files: new Set<string>(), searches: new Set<string>(), key: "" })
+  const key = lines.join("\n")
+  if (seen.key !== key) {
+    const files = new Set(seen.files)
+    const searches = new Set(seen.searches)
+    for (const s of steps) {
+      if (s.kind === "file" && s.target) files.add(s.target)
+      if (s.kind === "search" && s.target) searches.add(s.target)
+    }
+    setSeen({ files, searches, key })
+  }
+  const files = seen.files.size
+  const searches = seen.searches.size
   const summary = [files && `${files} ${files === 1 ? "file" : "files"}`, searches && `${searches} ${searches === 1 ? "search" : "searches"}`]
     .filter(Boolean)
     .join(" · ")
