@@ -27,6 +27,8 @@ class AIError(Exception):
     def __init__(self, code: str, message: str, status: int = 502):
         super().__init__(message)
         self.code, self.message, self.status = code, message, status
+        # requests already paid for before the failure, so they can be logged and counted
+        self.calls: list[Call] = []
 
 
 @dataclass
@@ -79,10 +81,14 @@ def _call(**kwargs: Any) -> tuple[Any, Call]:
         output_tokens=resp.usage.output_tokens or 0,
         ms=int((time.monotonic() - started) * 1000),
     )
-    if resp.stop_reason == "refusal":
-        raise AIError("ai_refused", "Claude declined to write this. Try rewording the topic.", 422)
-    if resp.stop_reason == "max_tokens":
-        raise AIError("ai_too_long", "The lesson came out too long to finish. Try a shorter length.", 502)
+    if resp.stop_reason in ("refusal", "max_tokens"):
+        err = (
+            AIError("ai_refused", "Claude declined to write this. Try rewording the topic.", 422)
+            if resp.stop_reason == "refusal"
+            else AIError("ai_too_long", "The lesson came out too long to finish. Try a shorter length.", 502)
+        )
+        err.calls = [call]
+        raise err
     return resp, call
 
 
@@ -146,7 +152,9 @@ def write_storyboard(topic: str, notes: str, level: str, minutes: int) -> tuple[
     try:
         board = Storyboard.model_validate(json.loads(text))
     except (json.JSONDecodeError, ValidationError) as exc:
-        raise AIError("ai_bad_output", "Claude's lesson didn't come out in a shape the editor can use. Try again.", 502) from exc
+        err = AIError("ai_bad_output", "Claude's lesson didn't come out in a shape the editor can use. Try again.", 502)
+        err.calls = [call]
+        raise err from exc
     return normalize(board), call
 
 
@@ -300,6 +308,14 @@ def edit_storyboard(board: Storyboard, instruction: str, scene_id: str | None, n
     calls: list[Call] = []
     current = board
 
+    try:
+        return _edit_loop(current, messages, changes, calls)
+    except AIError as exc:
+        exc.calls = calls + exc.calls  # what was paid for before the failure
+        raise
+
+
+def _edit_loop(current: Storyboard, messages: list[dict[str, Any]], changes: list[dict[str, str]], calls: list[Call]) -> EditOutcome:
     for _ in range(8):
         resp, call = _call(
             max_tokens=16000,

@@ -212,3 +212,87 @@ def test_write_schema_is_what_claude_gets():
     schema = llm.strict_json_schema(Storyboard)
     assert json.dumps(schema).count('"additionalProperties": false') >= 3
     assert "id" not in llm.EDIT_TOOLS[0]["input_schema"]["properties"]["scene"]["properties"]
+
+
+# ---------------------------------------------------------------- fixes from the review
+
+
+def test_scenes_with_the_same_narration_share_a_voice(client, owner, example, monkeypatch):
+    example["scenes"][3]["narration"] = example["scenes"][2]["narration"]
+    p = make_written(client, owner, example, monkeypatch, topic="Duplicates")
+    monkeypatch.setattr(tts, "speak", fake_speak)
+    client.post(f"/api/projects/{p['id']}/scenes/s3/voice", headers=owner)
+    voices = client.get(f"/api/projects/{p['id']}", headers=owner).json()["voices"]
+    assert {"s3", "s4"} <= set(voices)
+
+
+def test_two_voicings_of_the_same_text_at_once_return_one_clip(client, owner, example, monkeypatch):
+    from app import main
+    from app.models import Clip
+
+    example["scenes"][5]["narration"] = "Only for the race test."
+    p = make_written(client, owner, example, monkeypatch, topic="Race")
+
+    def speak_then_someone_else_saves(text, voice, model, prev="", nxt=""):
+        spoken = fake_speak(text, voice, model)
+        # another request finishes first and stores the same clip
+        from sqlmodel import Session
+
+        with Session(main.get_session.__globals__["engine"]) as s2:
+            s2.add(Clip(hash=tts.clip_hash(voice, model, text), voice_id=voice, model_id=model, text=text, audio=b"other", words=[], duration=1.0))
+            s2.commit()
+        return spoken
+
+    monkeypatch.setattr(tts, "speak", speak_then_someone_else_saves)
+    r = client.post(f"/api/projects/{p['id']}/scenes/s6/voice", headers=owner)
+    assert r.status_code == 200, r.text
+    assert r.json()["duration"] == 1.0  # the clip that won
+
+
+def test_head_on_a_clip(client, owner, example, monkeypatch):
+    p = make_written(client, owner, example, monkeypatch, topic="Head")
+    monkeypatch.setattr(tts, "speak", fake_speak)
+    v = client.post(f"/api/projects/{p['id']}/scenes/s1/voice", headers=owner).json()
+    r = client.head(v["url"])
+    assert r.status_code == 200 and int(r.headers["content-length"]) > 0 and r.content == b""
+
+
+def test_a_failed_write_that_used_tokens_counts_toward_the_limit(client, other, monkeypatch):
+    monkeypatch.setenv("LIMIT_WRITES_PER_BROWSER", "1")
+
+    def too_long(*a):
+        err = llm.AIError("ai_too_long", "Too long.", 502)
+        err.calls = [llm.Call("claude-test", 2000, 16000, 50000)]
+        raise err
+
+    monkeypatch.setattr(llm, "write_storyboard", too_long)
+    p = client.post("/api/projects", json={"topic": "Counts"}, headers=other).json()
+    assert client.post(f"/api/projects/{p['id']}/write", headers=other).status_code == 502
+    r = client.post(f"/api/projects/{p['id']}/write", headers=other)
+    assert r.status_code == 429
+    after = client.get(f"/api/projects/{p['id']}", headers=other).json()
+    assert after["status"] == "failed" and "lessons allowed" in after["error"]
+
+
+def test_a_failure_that_cost_nothing_does_not_count(client, monkeypatch):
+    monkeypatch.setenv("LIMIT_WRITES_PER_BROWSER", "1")
+    h = {"X-Owner": "free-failures-0123456789ab"}
+    p = client.post("/api/projects", json={"topic": "No key"}, headers=h).json()
+    for _ in range(3):  # no ANTHROPIC_API_KEY in tests: fails without spending
+        assert client.post(f"/api/projects/{p['id']}/write", headers=h).json()["error"]["code"] == "ai_not_configured"
+
+
+def test_an_edit_is_not_applied_over_newer_changes(client, owner, example, monkeypatch):
+    p = make_written(client, owner, example, monkeypatch, topic="Meanwhile")
+    edited = Storyboard.model_validate(example)
+
+    def slow_edit(board, *a):
+        # the person saves a change while Claude is working
+        example["scenes"][0]["heading"] = "Changed meanwhile"
+        client.put(f"/api/projects/{p['id']}/storyboard", json={"storyboard": example}, headers=owner)
+        return llm.EditOutcome(edited, "Done.", [], [llm.Call("claude-test", 1, 1, 1)])
+
+    monkeypatch.setattr(llm, "edit_storyboard", slow_edit)
+    r = client.post(f"/api/projects/{p['id']}/edit", json={"instruction": "anything"}, headers=owner)
+    assert r.status_code == 409 and r.json()["error"]["code"] == "changed_meanwhile"
+    assert client.get(f"/api/projects/{p['id']}", headers=owner).json()["storyboard"]["scenes"][0]["heading"] == "Changed meanwhile"

@@ -5,8 +5,8 @@ can be raised for a demo without a code change."""
 import os
 from datetime import timedelta
 
-from sqlalchemy import func
-from sqlmodel import Session, select
+from sqlalchemy import func, or_
+from sqlmodel import Session, col, select
 
 from app.models import Usage, now
 
@@ -23,7 +23,10 @@ def check(session: Session, owner: str, kind: str, characters: int = 0) -> str |
     since = now() - timedelta(days=1)
 
     def count(*where) -> int:
-        return session.exec(select(func.count()).select_from(Usage).where(Usage.created_at >= since, Usage.ok, *where)).one()
+        # A failed Claude call still costs money when it used tokens, so it counts. A failure
+        # that cost nothing (no key, unreachable) doesn't use up anyone's allowance.
+        paid = or_(col(Usage.ok), col(Usage.input_tokens) > 0, col(Usage.output_tokens) > 0)
+        return session.exec(select(func.count()).select_from(Usage).where(Usage.created_at >= since, paid, *where)).one()
 
     def chars(*where) -> int:
         return session.exec(select(func.coalesce(func.sum(Usage.characters), 0)).where(Usage.created_at >= since, Usage.ok, *where)).one()
