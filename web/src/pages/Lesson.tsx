@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Check, Loader2, RotateCcw } from "lucide-react"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useId, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { AgentTrace } from "@/components/common/AgentTrace"
@@ -8,26 +8,38 @@ import { Problem, QuietLoading, Shell } from "@/components/common/bits"
 import { Editor } from "@/components/editor/Editor"
 import type { EditorHost, VoiceState } from "@/components/editor/types"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { TextShimmer } from "@/components/ui/text-shimmer"
-import { api, ApiError, type EditResult, type Project, type Storyboard, type Voice } from "@/lib/api"
+import { api, ApiError, rememberName, savedName, type EditResult, type Project, type Storyboard, type Voice } from "@/lib/api"
 import { navigate } from "@/lib/router"
 
 export const configQuery = { queryKey: ["config"], queryFn: api.config, staleTime: 5 * 60_000, gcTime: 60 * 60_000 }
 
-/** A lesson made by the /lesson skill or the claude.ai connector arrives with a one-time
- * ?claim= link; opening it makes this browser the owner. The token leaves the address bar at
- * once so it isn't shared by accident, but stays in this tab until the claim succeeds, so a
- * claim that fails (say, offline) can be retried. */
-function useClaim(id: string) {
+/** A link that changes what this browser may do with a lesson, opened once:
+ * - ?claim= on a lesson made by the /lesson skill or the claude.ai connector makes this
+ *   browser its owner;
+ * - ?join= on a lesson someone shared for editing makes this browser one of its editors.
+ * The token leaves the address bar at once so it isn't passed on by accident, but stays in
+ * this tab until the server has answered, so an attempt that fails (say, offline) can be
+ * retried. */
+function useLinkToken(id: string, link: {
+  param: "claim" | "join"
+  run: (token: string) => Promise<Project>
+  done: string
+  failed: string
+  /** error codes that mean trying again won't help */
+  final: string[]
+}) {
   const qc = useQueryClient()
   const started = useRef(false)
+  const { param, run, done, failed, final } = link
   useEffect(() => {
-    const key = `claim:${id}`
+    const key = `${param}:${id}`
     const params = new URLSearchParams(window.location.search)
-    const fromUrl = params.get("claim")
+    const fromUrl = params.get(param)
     if (fromUrl) {
       sessionStorage.setItem(key, fromUrl)
-      params.delete("claim")
+      params.delete(param)
       const rest = params.toString()
       window.history.replaceState({}, "", `${window.location.pathname}${rest ? `?${rest}` : ""}`)
     }
@@ -36,32 +48,46 @@ function useClaim(id: string) {
     started.current = true
 
     const attempt = () =>
-      api.claim(id, token).then(
+      run(token).then(
         async (p) => {
           sessionStorage.removeItem(key)
-          // a GET that started before the claim mustn't land after it and look read-only
+          // a GET that started before the answer mustn't land after it and look read-only
           await qc.cancelQueries({ queryKey: ["project", id] })
           qc.setQueryData(["project", id], p)
           qc.invalidateQueries({ queryKey: ["project", id] })
           qc.invalidateQueries({ queryKey: ["projects"] })
-          toast.success("This lesson is yours now. It's saved in this browser.")
+          toast.success(done)
         },
         (e) => {
-          const final = e instanceof ApiError && (e.code === "already_claimed" || e.code === "bad_claim")
-          if (final) sessionStorage.removeItem(key)
-          toast.error(e instanceof ApiError ? e.message : "Couldn't claim this lesson.", {
-            duration: final ? 6000 : Infinity,
-            action: final ? undefined : { label: "Try again", onClick: () => attempt() },
+          const over = e instanceof ApiError && final.includes(e.code)
+          if (over) sessionStorage.removeItem(key)
+          toast.error(e instanceof ApiError ? e.message : failed, {
+            duration: over ? 6000 : Infinity,
+            action: over ? undefined : { label: "Try again", onClick: () => attempt() },
           })
         },
       )
     attempt()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, qc])
 }
 
 export function Lesson({ id }: { id: string }) {
   const qc = useQueryClient()
-  useClaim(id)
+  useLinkToken(id, {
+    param: "claim",
+    run: (token) => api.claim(id, token),
+    done: "This lesson is yours now. It's saved in this browser.",
+    failed: "Couldn't claim this lesson.",
+    final: ["already_claimed", "bad_claim"],
+  })
+  useLinkToken(id, {
+    param: "join",
+    run: (token) => api.join(id, token, savedName()),
+    done: "You can edit this lesson now. Changes save as you make them, and History keeps every version.",
+    failed: "Couldn't join this lesson.",
+    final: ["bad_invite", "full", "not_found"],
+  })
   const key = ["project", id]
   const writingHere = typeof sessionStorage !== "undefined" && sessionStorage.getItem(`writing:${id}`) === "1"
 
@@ -213,12 +239,38 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
   const inflight = useRef<Promise<void> | null>(null)
   const latest = useRef(board)
   latest.current = board
+  // The storyboard the edits on screen started from. Every save sends it along, so if someone
+  // else saved in the meantime the server can tell what each of us changed and keep both.
+  const base = useRef<Storyboard>(project.storyboard!)
+  // the newest rev this page has seen, so an older answer arriving late isn't taken for news
+  const seenRev = useRef(project.rev)
 
-  // when the server's copy changes under us (an AI edit), take it if we have no edits pending
+  // When the server's copy changes under us (an AI edit, someone else's save, going back to
+  // a version), take it if we have no edits pending. With edits pending we keep typing: the
+  // next save merges theirs in, and its answer is taken once we pause.
   const serverBoard = project.storyboard
   useEffect(() => {
-    if (!dirty.current && serverBoard) setBoardState(serverBoard)
-  }, [serverBoard])
+    if (!serverBoard || project.rev < seenRev.current) return
+    seenRev.current = project.rev
+    if (!dirty.current) {
+      setBoardState(serverBoard)
+      base.current = serverBoard
+    }
+  }, [serverBoard, project.rev])
+
+  /** Put a lesson the server just answered with in place of what the page holds. */
+  const adopt = useCallback(
+    async (p: Project, takeBoard = false) => {
+      await qc.cancelQueries({ queryKey: ["project", p.id] }) // an older GET mustn't land on top
+      seenRev.current = Math.max(seenRev.current, p.rev)
+      qc.setQueryData(["project", p.id], p)
+      if (takeBoard && p.storyboard) {
+        setBoardState(p.storyboard)
+        base.current = p.storyboard
+      }
+    },
+    [qc],
+  )
 
   const save = useCallback(async () => {
     if (timer.current) clearTimeout(timer.current)
@@ -236,10 +288,21 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
     setSaveState("saving")
     const run = (async () => {
       try {
-        const saved = await api.save(project.id, latest.current)
-        qc.setQueryData(key, saved)
+        const sent = latest.current
+        const saved = await api.save(project.id, sent, base.current)
+        // Until the answer is taken up (it is, at once, unless more was typed meanwhile),
+        // what was typed since is measured from what was sent.
+        base.current = sent
+        await adopt(saved)
         setSaveState(dirty.current ? "unsaved" : "saved")
         setSaveError(undefined)
+        const clashes = saved.conflicts ?? []
+        if (clashes.length) {
+          toast.message(clashes.length === 1 ? "Someone else changed the same thing" : `Someone else changed ${clashes.length} of the same things`, {
+            description: `${clashes[0].note} Their version is in History.`,
+            duration: 9000,
+          })
+        }
       } catch (e) {
         dirty.current = true
         setSaveState("error")
@@ -253,8 +316,7 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
     } finally {
       if (inflight.current === run) inflight.current = null
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project.id])
+  }, [project.id, adopt])
 
   const setBoard = (next: Storyboard) => {
     setBoardState(next)
@@ -346,8 +408,7 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
     } finally {
       setAiBusy(false)
     }
-    qc.setQueryData(key, result.project)
-    setBoardState(result.project.storyboard!)
+    await adopt(result.project, true)
     const changed = result.changes.filter((c) => c.kind === "updated" || c.kind === "inserted").map((c) => c.scene_id)
     if (voiceReady && changed.length) {
       const sb = result.project.storyboard!
@@ -361,10 +422,41 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
     return result
   }
 
+  // While other people can edit, ask every few seconds whether anything changed (one small
+  // request), and fetch the lesson only when it has. Paused while this tab is in the background.
+  const others = project.people.length > 1
+  const watch = useQuery({
+    queryKey: ["rev", project.id],
+    queryFn: () => api.rev(project.id),
+    enabled: project.can_edit && (others || !!project.invite_token),
+    refetchInterval: 4000,
+    staleTime: 0,
+    retry: false,
+  })
+  const remote = watch.data
+  useEffect(() => {
+    // with edits pending there's nothing to fetch for: the save about to happen brings theirs back
+    if (!remote || dirty.current || inflight.current) return
+    if (remote.rev !== project.rev || remote.editors !== Math.max(0, project.people.length - 1)) qc.invalidateQueries({ queryKey: key })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remote])
+
+  // a name chosen on another lesson carries over to this one, so nobody is asked twice
+  useEffect(() => {
+    const name = savedName()
+    if (project.can_edit && others && !project.my_name && name) api.setName(project.id, name).then((p) => adopt(p), () => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.can_edit, others])
+
+  const setMyName = async (name: string) => {
+    rememberName(name)
+    await adopt(await api.setName(project.id, name))
+  }
+
   const host: EditorHost = {
     board,
     voices,
-    editable: project.is_owner,
+    editable: project.can_edit,
     setBoard,
     saveState,
     saveError,
@@ -390,6 +482,36 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
             ? undefined
             : "AI edits aren't set up on this server yet. You can still edit every scene by hand.",
     shareUrl: `${window.location.origin}/l/${project.id}`,
+    history: project.can_edit
+      ? {
+          rev: project.rev,
+          list: () => api.versions(project.id),
+          load: (versionId) => api.version(project.id, versionId),
+          restore: async (versionId) => {
+            await save() // what's on screen becomes a version first, so going back loses nothing
+            await adopt(await api.restore(project.id, versionId), true)
+          },
+          name: async (name) => {
+            await save()
+            await api.nameVersion(project.id, name)
+          },
+        }
+      : undefined,
+    sharing: project.can_edit
+      ? {
+          people: project.people,
+          isOwner: project.is_owner,
+          myName: project.my_name,
+          setMyName,
+          inviteUrl: project.invite_token ? `${window.location.origin}/l/${project.id}?join=${project.invite_token}` : "",
+          invite: async (reset) => adopt(await api.invite(project.id, reset)),
+          stopInviting: async () => adopt(await api.stopInviting(project.id)),
+          remove: async (personId) => {
+            await adopt(await api.removeMember(project.id, personId))
+            qc.invalidateQueries({ queryKey: ["projects"] })
+          },
+        }
+      : undefined,
     repo: project.repo && project.repo_sha ? { name: project.repo, sha: project.repo_sha } : undefined,
   }
 
@@ -397,12 +519,45 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
     <Editor
       host={host}
       banner={
-        !voiceReady && project.is_owner ? (
-          <div className="border-b border-border bg-panel-raised px-4 py-2 text-xs text-muted-foreground" role="status">
-            Voices aren't set up on this server yet, so the lesson plays silently with captions.
-          </div>
-        ) : null
+        <>
+          {!voiceReady && project.can_edit ? (
+            <div className="border-b border-border bg-panel-raised px-4 py-2 text-xs text-muted-foreground" role="status">
+              Voices aren't set up on this server yet, so the lesson plays silently with captions.
+            </div>
+          ) : null}
+          {project.can_edit && others && !project.my_name ? <AskName onName={setMyName} /> : null}
+        </>
       }
     />
+  )
+}
+
+/** There are no accounts, so the history can only say who changed what if people say who they are. */
+function AskName({ onName }: { onName: (name: string) => Promise<void> }) {
+  const [name, setName] = useState("")
+  const [busy, setBusy] = useState(false)
+  const id = useId()
+  return (
+    <form
+      className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-ember-soft/40 px-4 py-2 text-xs"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (!name.trim() || busy) return
+        setBusy(true)
+        onName(name.trim())
+          .catch((err) => toast.error(err instanceof ApiError ? err.message : "Couldn't save your name."))
+          .finally(() => setBusy(false))
+      }}
+    >
+      <label htmlFor={id} className="min-w-0 flex-1 basis-56 text-muted-foreground">
+        <span className="font-medium text-foreground">You're editing this with other people.</span> What should they call you?
+      </label>
+      <span className="flex items-center gap-2">
+        <Input id={id} value={name} onChange={(e) => setName(e.target.value)} maxLength={40} placeholder="Your name" autoComplete="nickname" className="h-7 w-40 text-xs md:text-xs" />
+        <Button type="submit" size="xs" disabled={!name.trim() || busy}>
+          Save
+        </Button>
+      </span>
+    </form>
   )
 }

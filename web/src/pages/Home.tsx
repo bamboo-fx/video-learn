@@ -248,6 +248,7 @@ export function Home() {
                   <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                     {p.repo ? <span className="font-mono">{p.repo}</span> : p.topic}
                     {p.scenes ? ` · ${p.scenes} scenes` : ""}
+                    {p.shared ? " · shared with you" : ""}
                   </span>
                 </span>
                 <span className="flex shrink-0 items-center gap-4 text-xs text-muted-foreground">
