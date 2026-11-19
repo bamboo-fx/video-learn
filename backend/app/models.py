@@ -31,6 +31,9 @@ class Project(SQLModel, table=True):
     owner: str = Field(index=True, description="Random id the browser keeps; only the owner can edit.")
     topic: str
     notes: str = ""
+    # how to explain it (llm.MODES); rows from before modes have none and mean the default
+    mode: str | None = "walkthrough"
+    # what the page asked for before modes; still stored, no longer used
     level: str = "intro"
     minutes: int = 3
     voice_id: str = ""

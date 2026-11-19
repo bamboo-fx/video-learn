@@ -24,12 +24,21 @@ export interface Word {
   end: number
 }
 
+/** Ways of explaining, each for a kind of learning goal. The server sets the audience and
+ * length for each (backend/app/llm.py MODES). */
+export const LESSON_MODES = [
+  { value: "walkthrough", label: "Walkthrough", hint: "The whole picture, in the order things happen. About 3 minutes." },
+  { value: "bottom_up", label: "Bottom-up", hint: "From the smallest concrete piece up, one idea per step. About 4 minutes." },
+] as const
+
+export type LessonMode = (typeof LESSON_MODES)[number]["value"]
+
 export interface Project {
   id: string
   topic: string
   notes: string
-  level: "intro" | "intermediate" | "advanced"
-  minutes: number
+  /** how the lesson explains things (one per kind of learning goal) */
+  mode: LessonMode
   title: string
   status: "new" | "writing" | "ready" | "failed"
   error: string
@@ -211,7 +220,7 @@ export const api = {
   config: () => request<{ ai: boolean; voice: boolean }>("GET", "/api/config"),
   list: () => request<{ projects: ProjectSummary[] }>("GET", "/api/projects").then((r) => r.projects),
   get: (id: string) => request<Project>("GET", `/api/projects/${id}`),
-  create: (input: { topic: string; repo: string; notes: string; level: string; minutes: number }) =>
+  create: (input: { topic: string; repo: string; notes: string; mode: LessonMode }) =>
     request<Project>("POST", "/api/projects", input),
   write: (id: string) => request<Project>("POST", `/api/projects/${id}/write`),
   /** `base` is the storyboard these edits started from: if someone else saved since, the

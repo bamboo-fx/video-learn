@@ -11,7 +11,7 @@ import { TextShimmer } from "@/components/ui/text-shimmer"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { api, ApiError, parseRepo, type Project } from "@/lib/api"
+import { api, ApiError, LESSON_MODES, parseRepo, type LessonMode, type Project } from "@/lib/api"
 import { navigate } from "@/lib/router"
 import { configQuery } from "./Lesson"
 import { cn } from "@/lib/utils"
@@ -29,12 +29,12 @@ export function Home() {
   const qc = useQueryClient()
   const [repo, setRepo] = useState("")
   const [topic, setTopic] = useState("")
-  const [level, setLevel] = useState("intro")
-  const [minutes, setMinutes] = useState("3")
+  const [mode, setMode] = useState<LessonMode>("walkthrough")
   const [touched, setTouched] = useState(false)
   const repoId = useId()
   const topicId = useId()
   const repoErrorId = useId()
+  const modeHintId = useId()
 
   const lessons = useQuery(lessonsQuery)
   const config = useQuery(configQuery)
@@ -46,7 +46,7 @@ export function Home() {
 
   const create = useMutation({
     // send the link as pasted: the server reads the branch from it too (github.com/o/r/tree/dev)
-    mutationFn: () => api.create({ topic: topic.trim(), repo: repo.trim(), notes: "", level, minutes: Number(minutes) }),
+    mutationFn: () => api.create({ topic: topic.trim(), repo: repo.trim(), notes: "", mode }),
     onSuccess: (project: Project) => {
       sessionStorage.setItem(`writing:${project.id}`, "1")
       sessionStorage.setItem(`autovoice:${project.id}`, "1")
@@ -140,19 +140,27 @@ export function Home() {
             />
 
             <div className="flex flex-col gap-2.5 border-t border-border px-1 pt-2.5 sm:flex-row sm:items-center">
-              <div className="flex flex-wrap items-center gap-2">
-                <ToggleGroup type="single" value={level} onValueChange={(v) => v && setLevel(v)} variant="outline" size="sm" spacing={0} aria-label="Level">
-                  <ToggleGroupItem value="intro">New to it</ToggleGroupItem>
-                  <ToggleGroupItem value="intermediate">Some</ToggleGroupItem>
-                  <ToggleGroupItem value="advanced">Expert</ToggleGroupItem>
-                </ToggleGroup>
-                <ToggleGroup type="single" value={minutes} onValueChange={(v) => v && setMinutes(v)} variant="outline" size="sm" spacing={0} aria-label="Length in minutes">
-                  {["2", "3", "5"].map((m) => (
-                    <ToggleGroupItem key={m} value={m} aria-label={`${m} minutes`}>
-                      {m} min
+              <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+                <ToggleGroup
+                  type="single"
+                  value={mode}
+                  onValueChange={(v) => v && setMode(v as LessonMode)}
+                  variant="outline"
+                  size="sm"
+                  spacing={0}
+                  aria-label="How to explain it"
+                  aria-describedby={modeHintId}
+                  className="w-full sm:w-auto"
+                >
+                  {LESSON_MODES.map((m) => (
+                    <ToggleGroupItem key={m.value} value={m.value} className="flex-1 px-3 sm:flex-none">
+                      {m.label}
                     </ToggleGroupItem>
                   ))}
                 </ToggleGroup>
+                <p id={modeHintId} className="px-1 text-xs text-pretty text-muted-foreground sm:px-0">
+                  {LESSON_MODES.find((m) => m.value === mode)?.hint}
+                </p>
               </div>
               <Button type="submit" disabled={!canSubmit} className="h-9 w-full px-4 sm:ml-auto sm:w-auto">
                 {create.isPending ? <Loader2 className="animate-spin" aria-hidden /> : null}
