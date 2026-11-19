@@ -72,8 +72,9 @@ export function Timeline({ timeline, board, time, activeId, voiceState, onSeek, 
         aria-valuenow={Math.round(time)}
         aria-valuetext={`${clock(time)} of ${clock(total)}`}
         onKeyDown={(e) => {
-          if (e.key === "ArrowLeft") onSeek(time - 2)
-          if (e.key === "ArrowRight") onSeek(time + 2)
+          // the same 5 seconds the arrow keys skip everywhere else in the editor
+          if (e.key === "ArrowLeft") onSeek(time - 5)
+          if (e.key === "ArrowRight") onSeek(time + 5)
         }}
       >
         {/* ruler */}

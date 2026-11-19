@@ -3,12 +3,14 @@ import {
   CaptionsOff,
   Check,
   CloudOff,
+  FastForward,
   Link2,
   Loader2,
   Mic,
   Pause,
   Play,
   Plus,
+  Rewind,
   SkipBack,
   SkipForward,
 } from "lucide-react"
@@ -18,6 +20,7 @@ import { toast } from "sonner"
 import { Logo } from "@/components/common/bits"
 import { Stage } from "@/components/stage/Stage"
 import { Button } from "@/components/ui/button"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { TextShimmer } from "@/components/ui/text-shimmer"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -25,7 +28,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { githubUrl } from "@/lib/api"
 import { deleteScene, duplicateScene, insertScene, MAX_SCENES, moveScene, updateScene } from "@/lib/edit"
 import { buildTimeline, captionAt, clock, sceneAt } from "@/lib/timing"
-import { usePlayback } from "@/lib/usePlayback"
+import { RATES, usePlayback } from "@/lib/usePlayback"
 import { cn } from "@/lib/utils"
 
 import { AskAI } from "./AskAI"
@@ -87,19 +90,50 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
     select(board.scenes[i].id)
   }
 
-  // Space plays and pauses, unless you're typing
+  /** Jump by seconds. Playback carries on from the new spot if it was playing. */
+  const skip = (by: number) => seek(pb.time + by)
+
+  const stepRate = (by: -1 | 1) => {
+    const i = RATES.indexOf(pb.rate as (typeof RATES)[number])
+    pb.setRate(RATES[Math.max(0, Math.min(RATES.length - 1, (i < 0 ? RATES.indexOf(1) : i) + by))])
+  }
+
+  // The keys video players have taught everyone, unless you're typing: Space or K plays and
+  // pauses, the arrows skip 5 seconds, J and L skip 10, and < and > change the speed.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // a control that already used the key (a menu button opening its menu) keeps it
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return
       const el = e.target as HTMLElement
       if (el.closest("input, textarea, select, [contenteditable], [role=combobox], [role=slider]")) return
+      // arrows and letters already mean something in tabs, menus and dialogs, and Space on a
+      // button that opens a menu opens the menu
+      const inWidget = !!el.closest("[role=tablist], [role=menu], [role=listbox], [role=radiogroup], [role=dialog], [aria-haspopup]")
       if (e.code === "Space") {
+        if (inWidget) return
         e.preventDefault()
         pb.toggle()
+        return
       }
+      if (inWidget) return
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key
+      const act: Record<string, () => void> = {
+        k: pb.toggle,
+        ArrowLeft: () => skip(-SKIP_SHORT),
+        ArrowRight: () => skip(SKIP_SHORT),
+        j: () => skip(-SKIP),
+        l: () => skip(SKIP),
+        "<": () => stepRate(-1),
+        ">": () => stepRate(1),
+      }
+      if (!Object.hasOwn(act, key)) return
+      e.preventDefault()
+      act[key]()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [pb])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pb, timeline])
 
   const patchScene = (id: string, patch: Parameters<typeof updateScene>[2]) => host.setBoard(updateScene(board, id, patch))
   const stale = board.scenes.filter((s) => host.voiceState(s.id).kind === "stale").length
@@ -218,17 +252,25 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
 
           {/* transport */}
           <div className="flex shrink-0 items-center gap-2 border-t border-border px-3 py-2.5 sm:px-5">
-            <Button variant="ghost" size="icon-sm" onClick={() => step(-1)} aria-label="Previous scene">
+            {/* on a phone the scene strip below does previous and next, so the row has room to skip */}
+            <TransportButton label="Previous scene" onClick={() => step(-1)} className="max-sm:hidden">
               <SkipBack />
-            </Button>
+            </TransportButton>
+            <TransportButton label={`Back ${SKIP} seconds`} keys="J" onClick={() => skip(-SKIP)}>
+              <Rewind />
+            </TransportButton>
             <Button size="icon-lg" className="rounded-full" onClick={pb.toggle} aria-label={pb.playing ? "Pause" : "Play"}>
               {pb.playing ? <Pause className="fill-current" /> : <Play className="ml-0.5 fill-current" />}
             </Button>
-            <Button variant="ghost" size="icon-sm" onClick={() => step(1)} aria-label="Next scene">
+            <TransportButton label={`Forward ${SKIP} seconds`} keys="L" onClick={() => skip(SKIP)}>
+              <FastForward />
+            </TransportButton>
+            <TransportButton label="Next scene" onClick={() => step(1)} className="max-sm:hidden">
               <SkipForward />
-            </Button>
-            <span className="ml-1 font-mono text-xs text-muted-foreground tabular-nums" aria-live="off">
-              <span className="text-foreground">{clock(pb.time)}</span> / {clock(timeline.total)}
+            </TransportButton>
+            <span className="ml-1 font-mono text-xs whitespace-nowrap text-muted-foreground tabular-nums" aria-live="off">
+              <span className="text-foreground">{clock(pb.time)}</span>
+              <span className="max-sm:hidden"> / {clock(timeline.total)}</span>
             </span>
             {/* phone scrubber, in place of the timeline */}
             <input
@@ -247,6 +289,7 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
                   {pb.audioError}
                 </span>
               ) : null}
+              <SpeedMenu rate={pb.rate} onRate={pb.setRate} />
               <Button variant="ghost" size="icon-sm" onClick={() => setCc((v) => !v)} aria-pressed={cc} aria-label={cc ? "Hide captions" : "Show captions"}>
                 {cc ? <Captions /> : <CaptionsOff />}
               </Button>
@@ -349,6 +392,63 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
         onSelect={select}
       />
     </div>
+  )
+}
+
+/** Seconds the skip buttons (and J and L) jump; the arrow keys make the smaller jump. */
+const SKIP = 10
+const SKIP_SHORT = 5
+
+function TransportButton({ label, keys, onClick, className, children }: {
+  label: string
+  /** the keyboard shortcut, shown in the tooltip */
+  keys?: string
+  onClick: () => void
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button variant="ghost" size="icon-sm" onClick={onClick} aria-label={label} className={className}>
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {label}
+        {keys ? <kbd className="ml-1.5 font-mono opacity-70">{keys}</kbd> : null}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+const rateLabel = (rate: number) => `${rate}×`
+
+function SpeedMenu({ rate, onRate }: { rate: number; onRate: (rate: number) => void }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`Playback speed, ${rate === 1 ? "normal" : `${rate} times`}`}
+          className={cn("min-w-10 px-1.5 font-mono text-xs tabular-nums", rate !== 1 && "text-ember hover:text-ember")}
+        >
+          {rateLabel(rate)}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" side="top" className="w-36">
+        <DropdownMenuLabel>Speed</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={String(rate)} onValueChange={(v) => onRate(Number(v))}>
+          {RATES.map((r) => (
+            <DropdownMenuRadioItem key={r} value={String(r)} className="font-mono text-xs tabular-nums">
+              {rateLabel(r)}
+              {r === 1 ? <span className="font-sans text-muted-foreground">Normal</span> : null}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
