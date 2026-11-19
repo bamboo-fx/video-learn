@@ -26,8 +26,14 @@ The course requirements each slice meets are numbered as in the project brief:
 | 14 | #19 | Claude researches the repo and cites real lines | backend | 5 | Every code scene is filled from the file; bad citations go back to Claude |
 | 15 | #20 | Repo lessons in the editor | frontend | 1, 2 | Paste a repo and a question; see what Claude reads; code shows real line numbers |
 
+| 16 | (no issue yet) | Watch faster and skip: speed from 0.5x to 2x, 10 seconds back and forward, keys | frontend | 1, 2 | 2x covers the lesson in half the time with captions in step; skipping doesn't stop playback |
+| 17 | (no issue yet) | History and editing together: versions you can go back to, an invite link, merged saves | both | 1, 2, 3 | Two browsers change different scenes at once and both changes survive; any earlier version can be restored |
+
 Slices 13 to 15 narrow the product from any topic to a codebase: someone pastes a GitHub
 repository they need to understand (often one an AI agent helped write) and asks about it.
+
+Slices 16 and 17 come from feedback after the first builds ("can I watch at 2x and skip?",
+"can it be version controlled like GitHub, and can I work on it with someone?").
 
 After the design review: fixes from the group's worksheets, then quiz pauses (the lesson
 stops, asks a question, and Claude checks the answer) and video export.

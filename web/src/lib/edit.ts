@@ -29,9 +29,15 @@ export const MAX_ITEMS: Record<Layout, number> = {
   summary: 5,
 }
 
+/** An id for a new scene. Random rather than "the next number": two people adding a scene to
+ * the same lesson at once must not both call theirs s8, and an id is never reused after its
+ * scene is deleted. (Still "s" and digits, which is what the server accepts.) */
 export function nextId(board: Storyboard): string {
-  const nums = board.scenes.map((s) => Number(s.id.replace(/^s/, ""))).filter(Number.isFinite)
-  return `s${Math.max(0, ...nums) + 1}`
+  const used = new Set(board.scenes.map((s) => s.id))
+  for (;;) {
+    const id = `s${1000 + Math.floor(Math.random() * 9e8)}`
+    if (!used.has(id)) return id
+  }
 }
 
 export function updateScene(board: Storyboard, id: string, patch: Partial<Scene>): Storyboard {

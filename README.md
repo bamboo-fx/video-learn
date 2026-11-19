@@ -37,6 +37,18 @@ Final project for ENGR 190BO, AI-Amplified Prototyping (Harvey Mudd College, Fal
 
 Setup steps for both: https://web-production-77637c10.up.railway.app/connect
 
+## Editing a lesson
+
+- **History.** Every change is kept as a version, like commits: Claude's writing, each AI
+  edit, and your hand edits (a few minutes of typing is one version). Open the History tab to
+  see what changed in each, look at an old version on the stage, go back to it, or name the
+  lesson as it is now. Going back adds a version, so it can be undone too.
+- **Editing together.** Share, then "Make an invite link". Whoever opens the link can edit the
+  lesson with you; there are no accounts, so they type a name. Changes show up for everyone
+  within a few seconds, and two people changing different things at once both keep their work.
+- **Watching.** Speed from 0.5x to 2x, skip 10 seconds back or forward, and the usual keys:
+  Space or K to play, arrows for 5 seconds, J and L for 10, < and > for speed.
+
 ## In this repository
 
 - `PROCESS.md`: the design process log

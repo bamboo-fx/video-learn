@@ -43,14 +43,79 @@ export interface Project {
   progress: string[]
   voices: Record<string, Voice>
   is_owner: boolean
+  /** the owner, or someone the owner invited to edit */
+  can_edit: boolean
+  /** goes up each time the storyboard changes, whoever changed it */
+  rev: number
+  /** who can edit, owner first; empty unless you can edit too */
+  people: Person[]
+  /** what the others see next to your changes */
+  my_name: string
+  /** the token of the link that invites editors; "" when off, and only the owner gets it */
+  invite_token: string
   /** "web" (written on our server), "local" (the /lesson skill) or "connector" (claude.ai) */
   origin: "web" | "local" | "connector"
   created_at: string
   updated_at: string
 }
 
+/** Someone who can edit a lesson. `id` is 0 for the owner. */
+export interface Person {
+  id: number
+  name: string
+  role: "owner" | "editor"
+  you: boolean
+}
+
+/** Where a save and someone else's changed the same thing. The save won; `note` says what. */
+export interface Conflict {
+  scene_id: string
+  heading: string
+  note: string
+}
+
+export interface VersionChange {
+  kind: "lesson" | "added" | "changed" | "removed" | "reordered"
+  scene_id: string
+  heading: string
+  /** which parts changed: "narration", "heading", ... */
+  fields: string[]
+}
+
+/** One entry in a lesson's history. */
+export interface VersionInfo {
+  id: number
+  /** 1, 2, 3... within the lesson */
+  number: number
+  kind: "start" | "write" | "import" | "hand" | "ai" | "restore"
+  /** set when someone saved this version on purpose */
+  name: string
+  message: string
+  authors: string[]
+  /** what changed since the version before */
+  changes: VersionChange[]
+  /** the lesson is this version right now */
+  current: boolean
+  created_at: string
+  updated_at: string
+}
+
+/** A page of the history, newest first. */
+export interface VersionPage {
+  versions: VersionInfo[]
+  /** there are older versions than these */
+  more: boolean
+}
+
+export interface VersionFull extends VersionInfo {
+  storyboard: Storyboard
+  repo_sha: string
+}
+
 export interface ProjectSummary {
   id: string
+  /** someone else's lesson you were invited to edit */
+  shared: boolean
   title: string
   topic: string
   repo: string
@@ -84,6 +149,25 @@ export function ownerId(): string {
     localStorage.setItem(OWNER_KEY, id)
   }
   return id
+}
+
+const NAME_KEY = "video-learn.name"
+
+/** What this person asked to be called, remembered so they're asked once, not per lesson. */
+export function savedName(): string {
+  try {
+    return localStorage.getItem(NAME_KEY) ?? ""
+  } catch {
+    return ""
+  }
+}
+
+export function rememberName(name: string) {
+  try {
+    localStorage.setItem(NAME_KEY, name)
+  } catch {
+    // it still reaches the server for this lesson
+  }
 }
 
 // ---------------------------------------------------------------- requests
@@ -130,12 +214,31 @@ export const api = {
   create: (input: { topic: string; repo: string; notes: string; level: string; minutes: number }) =>
     request<Project>("POST", "/api/projects", input),
   write: (id: string) => request<Project>("POST", `/api/projects/${id}/write`),
-  save: (id: string, storyboard: Storyboard) => request<Project>("PUT", `/api/projects/${id}/storyboard`, { storyboard }),
+  /** `base` is the storyboard these edits started from: if someone else saved since, the
+   * server merges the two instead of letting this save erase theirs. */
+  save: (id: string, storyboard: Storyboard, base?: Storyboard) =>
+    request<Project & { conflicts: Conflict[] }>("PUT", `/api/projects/${id}/storyboard`, { storyboard, base }),
   voice: (id: string, sceneId: string) => request<Voice>("POST", `/api/projects/${id}/scenes/${sceneId}/voice`),
   edit: (id: string, instruction: string, sceneId: string | null) =>
     request<EditResult>("POST", `/api/projects/${id}/edit`, { instruction, scene_id: sceneId }),
   remove: (id: string) => request<void>("DELETE", `/api/projects/${id}`),
   claim: (id: string, token: string) => request<Project>("POST", `/api/projects/${id}/claim`, { token }),
+
+  // history
+  /** a page of the history, newest first; `before` = the oldest version id already shown */
+  versions: (id: string, before?: number) =>
+    request<VersionPage>("GET", `/api/projects/${id}/versions${before === undefined ? "" : `?before=${before}`}`),
+  version: (id: string, versionId: number) => request<VersionFull>("GET", `/api/projects/${id}/versions/${versionId}`),
+  nameVersion: (id: string, name: string) => request<VersionInfo>("POST", `/api/projects/${id}/versions`, { name }),
+  restore: (id: string, versionId: number) => request<Project>("POST", `/api/projects/${id}/versions/${versionId}/restore`),
+
+  // editing together
+  rev: (id: string) => request<{ rev: number; status: Project["status"]; editors: number }>("GET", `/api/projects/${id}/rev`),
+  invite: (id: string, reset = false) => request<Project>("POST", `/api/projects/${id}/invite`, { reset }),
+  stopInviting: (id: string) => request<Project>("DELETE", `/api/projects/${id}/invite`),
+  join: (id: string, token: string, name: string) => request<Project>("POST", `/api/projects/${id}/join`, { token, name }),
+  removeMember: (id: string, memberId: number) => request<Project>("DELETE", `/api/projects/${id}/members/${memberId}`),
+  setName: (id: string, name: string) => request<Project>("PUT", `/api/projects/${id}/me`, { name }),
 }
 
 // ---------------------------------------------------------------- repositories

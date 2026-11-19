@@ -19,14 +19,14 @@ from fastapi.staticfiles import StaticFiles
 from collections import OrderedDict
 
 from pydantic import BaseModel, Field, StringConstraints, ValidationError
-from sqlalchemy import func, update
+from sqlalchemy import delete, func, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, col, select
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import connector, github, grounding, limits, llm, secrets_scan, tts
+from app import connector, github, grounding, history, limits, llm, merge, secrets_scan, tts
 from app.db import engine, get_session, init_db
-from app.models import Clip, Project, RepoSnapshot, Usage, now
+from app.models import Clip, Member, Project, RepoSnapshot, Usage, Version, now
 from app.storyboard import Storyboard, normalize
 
 
@@ -152,10 +152,49 @@ def load_project(session: Session, project_id: str) -> Project:
 
 
 def owned_project(session: Session, project_id: str, owner: str) -> Project:
+    """The lesson, for the things only its owner does: delete it, have Claude rewrite it from
+    scratch, read what it cost, and decide who else can edit."""
     project = load_project(session, project_id)
     if project.owner != owner:
-        raise ApiError(403, "not_owner", "Only the person who made this lesson can change it.")
+        raise ApiError(403, "not_owner", "Only the person who made this lesson can do that.")
     return project
+
+
+MAX_MEMBERS = 12  # people one lesson can be shared with for editing
+
+
+def members_of(session: Session, project_id: str) -> list[Member]:
+    return list(session.exec(select(Member).where(Member.project_id == project_id).order_by(col(Member.id))).all())
+
+
+def member_of(session: Session, project_id: str, browser: str) -> Member | None:
+    return session.exec(select(Member).where(Member.project_id == project_id, Member.browser == browser)).first()
+
+
+def lock_project(session: Session, project_id: str) -> None:
+    """Hold the lesson's row until this transaction ends, the way every storyboard change does
+    (its UPDATE takes the row). Things that read and then write around a change (naming the
+    current version, counting editors before adding one) take it first, so a change can't land
+    between their read and their write. Works on SQLite too, where it takes the write lock."""
+    session.exec(update(Project).where(col(Project.id) == project_id).values(rev=func.coalesce(Project.rev, 0)))
+
+
+def editable_project(session: Session, project_id: str, owner: str) -> Project:
+    """The lesson, for anyone who can change it: its owner, and people the owner invited."""
+    project = load_project(session, project_id)
+    if project.owner != owner and member_of(session, project_id, owner) is None:
+        raise ApiError(403, "not_owner", "Only the person who made this lesson, and people they invited, can change it.")
+    return project
+
+
+def name_of(session: Session, project: Project, browser: str) -> str:
+    """What to call whoever is making a change, in the lesson's history. Someone who hasn't
+    given a name is "The owner" or "A guest"; on a lesson nobody else edits there is nobody
+    to tell apart, so its history carries no names at all."""
+    if project.owner == browser:
+        return project.owner_name or ("The owner" if members_of(session, project.id) else "")
+    member = member_of(session, project.id, browser)
+    return (member.name if member else "") or "A guest"
 
 
 # ---------------------------------------------------------------- shapes
@@ -220,7 +259,15 @@ def iso(dt) -> str:
     return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).isoformat()
 
 
-def project_out(project: Project, owner: str | None, voices: dict[str, Any] | None = None) -> dict[str, Any]:
+def project_out(project: Project, owner: str | None, voices: dict[str, Any] | None = None,
+                members: list[Member] | None = None) -> dict[str, Any]:
+    is_owner = owner is not None and bool(project.owner) and owner == project.owner
+    mine = next((m for m in members or [] if owner is not None and m.browser == owner), None)
+    can_edit = is_owner or mine is not None
+    # Who can edit, for the people who can edit. Browser ids are what make someone the owner
+    # or a member, so they never leave the server: a member is known by its row id.
+    people = [{"id": 0, "name": project.owner_name or "", "role": "owner", "you": is_owner},
+              *({"id": m.id, "name": m.name or "", "role": "editor", "you": m is mine} for m in members or [])] if can_edit else []
     return {
         "id": project.id,
         "topic": project.topic,
@@ -237,16 +284,28 @@ def project_out(project: Project, owner: str | None, voices: dict[str, Any] | No
         "repo_sha": project.repo_sha or "",
         "progress": (project.progress or [])[-PROGRESS_KEEP:],
         "voices": voices or {},
-        "is_owner": owner is not None and bool(project.owner) and owner == project.owner,
+        "is_owner": is_owner,
+        "can_edit": can_edit,
+        "rev": project.rev or 0,
+        "people": people,
+        "my_name": (project.owner_name or "") if is_owner else (mine.name or "") if mine else "",
+        # the owner's link for inviting editors; "" when there isn't one
+        "invite_token": (project.invite_token or "") if is_owner else "",
         "origin": project.origin or "web",
         "created_at": iso(project.created_at),
         "updated_at": iso(project.updated_at),
     }
 
 
-def project_summary(project: Project) -> dict[str, Any]:
+def lesson_out(session: Session, project: Project, owner: str | None) -> dict[str, Any]:
+    """The whole lesson as the page wants it: with its voices and the people editing it."""
+    return project_out(project, owner, voices_for(session, project), members_of(session, project.id))
+
+
+def project_summary(project: Project, shared: bool = False) -> dict[str, Any]:
     scenes = (project.storyboard or {}).get("scenes", [])
     return {
+        "shared": shared,  # someone else's lesson that this browser was invited to edit
         "id": project.id,
         "title": project.title or project.topic,
         "topic": project.topic,
@@ -274,8 +333,11 @@ def config():
 
 @app.get("/api/projects")
 def list_projects(session: SessionDep, owner: OwnerDep):
-    rows = session.exec(select(Project).where(Project.owner == owner).order_by(Project.updated_at.desc()).limit(50)).all()
-    return {"projects": [project_summary(p) for p in rows]}
+    mine = session.exec(select(Project).where(Project.owner == owner).order_by(Project.updated_at.desc()).limit(50)).all()
+    joined = session.exec(select(Project).join(Member, col(Member.project_id) == col(Project.id)).where(Member.browser == owner)
+                          .order_by(Project.updated_at.desc()).limit(50)).all()
+    rows = sorted([*((p, False) for p in mine), *((p, True) for p in joined)], key=lambda r: aware(r[0].updated_at), reverse=True)
+    return {"projects": [project_summary(p, shared) for p, shared in rows[:50]]}
 
 
 @app.post("/api/projects", status_code=201)
@@ -299,44 +361,82 @@ def create_project(body: ProjectIn, session: SessionDep, owner: OwnerDep):
 def get_project(project_id: str, session: SessionDep, owner: MaybeOwner):
     project = load_project(session, project_id)
     expire_stale_write(session, project)
-    return project_out(project, owner, voices_for(session, project))
+    return lesson_out(session, project, owner)
 
 
 class StoryboardIn(BaseModel):
     storyboard: dict[str, Any]
+    # The storyboard this browser's edits started from. With it, a save made after someone
+    # else's is merged with theirs (app/merge.py) instead of replacing it. Without it the
+    # save replaces the lesson, as it did before lessons could be shared.
+    base: dict[str, Any] | None = None
+
+
+SAVE_TRIES = 4  # times a save re-merges when someone else's lands in the middle of it
 
 
 @app.put("/api/projects/{project_id}/storyboard")
 def save_storyboard(project_id: str, body: StoryboardIn, session: SessionDep, owner: OwnerDep):
-    project = owned_project(session, project_id, owner)
-    if project.status == "writing":
-        raise ApiError(409, "being_written", "This lesson is being written. Your changes can be saved once it's done.")
+    project = editable_project(session, project_id, owner)
+    author = name_of(session, project, owner)
     try:
-        board = normalize(Storyboard.model_validate(body.storyboard))
-        # Re-ground only lessons whose code came from a snapshot (written here, or through the
-        # connector). A /lesson upload's code came from the person's own files, which the
-        # server doesn't have; a cached snapshot of the same commit may be trimmed.
-        if ((project.origin or "web") != "local" and project.repo and project.repo_sha
-                and (snap := load_snapshot(session, f"{project.repo}@{project.repo_sha}"))):
-            board = grounding.ground(board, snap, hand=True)  # code on screen always comes from the file
+        mine = normalize(Storyboard.model_validate(body.storyboard))
     except ValidationError as exc:
-        first = exc.errors()[0]
-        where = ".".join(str(p) for p in first["loc"])
-        raise ApiError(422, "invalid_storyboard", f"The lesson couldn't be saved: {where}: {first['msg']}") from exc
-    project.storyboard = board.model_dump()
-    project.title = board.title
-    project.status = "ready"
-    project.error = ""
-    project.updated_at = now()
-    session.add(project)
-    session.commit()
-    session.refresh(project)
-    return project_out(project, owner, voices_for(session, project))
+        raise invalid_storyboard(exc) from exc
+    try:
+        base = Storyboard.model_validate(body.base) if body.base is not None else None
+    except ValidationError:
+        base = None  # can't tell what this browser changed, so the save stands as sent
+
+    for _ in range(SAVE_TRIES):
+        if project.status == "writing":
+            raise ApiError(409, "being_written", "This lesson is being written. Your changes can be saved once it's done.")
+        rev, before = project.rev or 0, project.storyboard
+        board, clashes = mine, []
+        try:
+            if base is not None and before and (theirs := Storyboard.model_validate(before)) != base:
+                board, clashes = merge.merge(base, theirs, mine)
+                board = normalize(board)
+            # Re-ground only lessons whose code came from a snapshot (written here, or through the
+            # connector). A /lesson upload's code came from the person's own files, which the
+            # server doesn't have; a cached snapshot of the same commit may be trimmed.
+            if ((project.origin or "web") != "local" and project.repo and project.repo_sha
+                    and (snap := load_snapshot(session, f"{project.repo}@{project.repo_sha}"))):
+                board = grounding.ground(board, snap, hand=True)  # code on screen always comes from the file
+        except ValidationError as exc:
+            raise invalid_storyboard(exc) from exc
+        saved = board.model_dump()
+        # Applied only to the rev that was read, in the same statement that bumps it: when two
+        # people save at once, the second finds the rev moved and merges again.
+        applied = session.exec(
+            update(Project)
+            .where(col(Project.id) == project_id, func.coalesce(Project.rev, 0) == rev, col(Project.status) != "writing")
+            .values(storyboard=saved, title=board.title, status="ready", error="", updated_at=now(), rev=rev + 1)
+        ).rowcount
+        if applied:
+            history.record(session, project_id, saved, kind="hand", author=author, repo_sha=project.repo_sha or "", before=before,
+                           fold=not clashes)
+            session.commit()
+            project = session.get(Project, project_id)
+            session.refresh(project)
+            return {**lesson_out(session, project, owner), "conflicts": clashes}
+        session.rollback()
+        session.expire_all()
+        project = load_project(session, project_id)
+    raise ApiError(409, "changed_meanwhile", "Other people are saving this lesson at the same moment. Your changes are still here and will be saved shortly.")
+
+
+def invalid_storyboard(exc: ValidationError) -> ApiError:
+    first = exc.errors()[0]
+    where = ".".join(str(p) for p in first["loc"])
+    return ApiError(422, "invalid_storyboard", f"The lesson couldn't be saved: {where}: {first['msg']}")
 
 
 @app.delete("/api/projects/{project_id}", status_code=204)
 def delete_project(project_id: str, session: SessionDep, owner: OwnerDep):
     project = owned_project(session, project_id, owner)
+    session.exec(delete(Member).where(col(Member.project_id) == project_id))
+    session.exec(delete(Version).where(col(Version.project_id) == project_id))
     session.delete(project)
     session.commit()
 
@@ -471,6 +571,7 @@ def write_project(project_id: str, session: SessionDep, owner: OwnerDep):
 
     project = session.get(Project, project_id)
     topic, notes, level, minutes, repo, ref = project.topic, project.notes, project.level, project.minutes, project.repo, project.repo_ref or ""
+    before, before_sha, author = project.storyboard, project.repo_sha or "", name_of(session, project, owner)
     voice_id = project.voice_id or tts.voice_id()
     session.close()  # don't hold a database connection while GitHub or Claude works
     progress = progress_writer(project_id)
@@ -509,17 +610,21 @@ def write_project(project_id: str, session: SessionDep, owner: OwnerDep):
     # it's writing, so nothing newer can be overwritten), and the commit only together with
     # the storyboard written from it.
     values: dict[str, Any] = {"storyboard": board.model_dump(), "title": board.title, "voice_id": voice_id,
-                              "status": "ready", "error": "", "updated_at": now()}
+                              "status": "ready", "error": "", "updated_at": now(), "rev": func.coalesce(Project.rev, 0) + 1}
     if repo_sha:
         values.update(repo=repo_name, repo_sha=repo_sha)
     saved = session.exec(
         update(Project).where(col(Project.id) == project_id, col(Project.status) == "writing").values(**values)
     ).rowcount
+    if saved:
+        # a rewrite replaces everything, so the lesson it replaced must stay reachable
+        history.record(session, project_id, board.model_dump(), kind="write", author=author, repo_sha=repo_sha or before_sha,
+                       before=before, before_sha=before_sha, message="Claude rewrote the lesson" if before else "Claude wrote the lesson")
     session.commit()
     if not saved:
         raise ApiError(409, "changed_meanwhile", "The lesson changed while Claude was writing it, so this version wasn't saved.")
     project = session.get(Project, project_id)
-    return project_out(project, owner, voices_for(session, project))
+    return lesson_out(session, project, owner)
 
 
 def clip_out(clip: Clip) -> dict[str, Any]:
@@ -528,8 +633,9 @@ def clip_out(clip: Clip) -> dict[str, Any]:
 
 @app.post("/api/projects/{project_id}/scenes/{scene_id}/voice")
 def voice_scene(project_id: str, scene_id: str, session: SessionDep, owner: OwnerDep):
-    """ElevenLabs voices one scene's narration, unless that exact text was voiced before."""
-    project = owned_project(session, project_id, owner)
+    """ElevenLabs voices one scene's narration, unless that exact text was voiced before.
+    Whoever clicks pays from their own daily allowance, owner or invited editor."""
+    project = editable_project(session, project_id, owner)
     scenes = (project.storyboard or {}).get("scenes", [])
     i = next((k for k, s in enumerate(scenes) if s["id"] == scene_id), None)
     if i is None:
@@ -631,8 +737,9 @@ class EditIn(BaseModel):
 
 @app.post("/api/projects/{project_id}/edit")
 def edit_project(project_id: str, body: EditIn, session: SessionDep, owner: OwnerDep):
-    """Claude changes the storyboard through tools; the answer is the list of changes."""
-    project = owned_project(session, project_id, owner)
+    """Claude changes the storyboard through tools; the answer is the list of changes.
+    An invited editor can ask too, from their own daily allowance."""
+    project = editable_project(session, project_id, owner)
     if not project.storyboard:
         raise ApiError(409, "not_written", "There's no lesson to edit yet.")
     if project.status == "writing":
@@ -645,6 +752,7 @@ def edit_project(project_id: str, body: EditIn, session: SessionDep, owner: Owne
     board = Storyboard.model_validate(project.storyboard)
     started_from = project.updated_at
     notes = project.notes
+    before, author = project.storyboard, name_of(session, project, owner)
     snap = load_snapshot(session, f"{project.repo}@{project.repo_sha}") if project.repo and project.repo_sha else None
     try:
         usage_id = limits.reserve(session, owner, project_id, "edit", "anthropic", llm.model())
@@ -663,13 +771,17 @@ def edit_project(project_id: str, body: EditIn, session: SessionDep, owner: Owne
     applied = session.exec(
         update(Project)
         .where(col(Project.id) == project_id, col(Project.updated_at) == started_from)
-        .values(storyboard=outcome.board.model_dump(), title=outcome.board.title, updated_at=now())
+        .values(storyboard=outcome.board.model_dump(), title=outcome.board.title, updated_at=now(),
+                rev=func.coalesce(Project.rev, 0) + 1)
     ).rowcount
+    if applied:
+        history.record(session, project_id, outcome.board.model_dump(), kind="ai", message=body.instruction.strip()[:300],
+                       author=author, repo_sha=(snap.sha if snap else ""), before=before)
     session.commit()
     if not applied:
         raise ApiError(409, "changed_meanwhile", "The lesson changed while Claude was editing it, so the edit wasn't applied. Ask again.")
     project = session.get(Project, project_id)
-    return {"project": project_out(project, owner, voices_for(session, project)), "summary": outcome.summary, "changes": outcome.changes}
+    return {"project": lesson_out(session, project, owner), "summary": outcome.summary, "changes": outcome.changes}
 
 
 @app.get("/api/projects/{project_id}/usage")
@@ -686,6 +798,190 @@ def project_usage(project_id: str, session: SessionDep, owner: OwnerDep):
             row["credits"] = r.characters  # about one credit per character on eleven_multilingual_v2
         calls.append(row)
     return {"calls": calls}
+
+
+# ---------------------------------------------------------------- history
+
+
+def version_of(session: Session, project_id: str, version_id: int) -> Version:
+    version = session.get(Version, version_id)
+    if not version or version.project_id != project_id:
+        raise ApiError(404, "not_found", "That version isn't in this lesson's history.")
+    return version
+
+
+VERSIONS_PAGE = 50
+
+
+@app.get("/api/projects/{project_id}/versions")
+def list_versions(project_id: str, session: SessionDep, owner: OwnerDep, before: int | None = None):
+    """The lesson's history, newest first, a page at a time (`before` = the oldest version id
+    already shown). For the people who can edit it: earlier drafts aren't part of what a share
+    link shows."""
+    project = editable_project(session, project_id, owner)
+    newest = history.latest(session, project_id)
+    current = newest.id if newest and newest.storyboard == project.storyboard else None
+    rows = history.listing(session, project_id, limit=VERSIONS_PAGE + 1, before=before)
+    return {"versions": [history.meta(v, v.id == current) for v in rows[:VERSIONS_PAGE]], "more": len(rows) > VERSIONS_PAGE}
+
+
+@app.get("/api/projects/{project_id}/versions/{version_id}")
+def get_version(project_id: str, version_id: int, session: SessionDep, owner: OwnerDep):
+    """One version with its storyboard, to look at before going back to it."""
+    editable_project(session, project_id, owner)
+    version = version_of(session, project_id, version_id)
+    return {**history.meta(version), "storyboard": version.storyboard, "repo_sha": version.repo_sha or ""}
+
+
+class VersionIn(BaseModel):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
+
+
+@app.post("/api/projects/{project_id}/versions", status_code=201)
+def name_version(project_id: str, body: VersionIn, session: SessionDep, owner: OwnerDep):
+    """Keep the lesson as it is now under a name ("before the review"), like a commit message."""
+    project = editable_project(session, project_id, owner)
+    lock_project(session, project_id)  # no save may fold into the version while it's being named
+    session.refresh(project)
+    if not project.storyboard:
+        raise ApiError(409, "not_written", "There's no lesson to save a version of yet.")
+    version = history.name_current(session, project_id, project.storyboard, body.name, name_of(session, project, owner), project.repo_sha or "")
+    session.commit()
+    session.refresh(version)
+    return history.meta(version, current=True)
+
+
+@app.post("/api/projects/{project_id}/versions/{version_id}/restore")
+def restore_version(project_id: str, version_id: int, session: SessionDep, owner: OwnerDep):
+    """Make the lesson what it was at an earlier version. This adds a version on top rather
+    than removing the ones in between, so going back can itself be undone."""
+    project = editable_project(session, project_id, owner)
+    version = version_of(session, project_id, version_id)
+    if project.status == "writing":
+        raise ApiError(409, "being_written", "This lesson is being written. Go back to a version once it's done.")
+    rev, before = project.rev or 0, project.storyboard
+    if before != version.storyboard:
+        values: dict[str, Any] = {"storyboard": version.storyboard, "title": version.title or project.title, "status": "ready",
+                                  "error": "", "updated_at": now(), "rev": rev + 1}
+        if version.repo_sha:
+            values["repo_sha"] = version.repo_sha  # the code on screen came from this commit
+        applied = session.exec(
+            update(Project)
+            .where(col(Project.id) == project_id, func.coalesce(Project.rev, 0) == rev, col(Project.status) != "writing")
+            .values(**values)
+        ).rowcount
+        if not applied:
+            session.rollback()
+            raise ApiError(409, "changed_meanwhile", "The lesson changed just now. Look at it again, and go back if you still want to.")
+        history.record(session, project_id, version.storyboard, kind="restore", author=name_of(session, project, owner),
+                       repo_sha=version.repo_sha or project.repo_sha or "", before=before, before_sha=project.repo_sha or "",
+                       message=f"Went back to version {version.number}" + (f", “{version.name}”" if version.name else ""))
+        session.commit()
+        project = session.get(Project, project_id)
+        session.refresh(project)
+    return lesson_out(session, project, owner)
+
+
+# ---------------------------------------------------------------- editing together
+
+
+@app.get("/api/projects/{project_id}/rev")
+def project_rev(project_id: str, session: SessionDep):
+    """A cheap "has anything changed?" for a page that is open while other people edit."""
+    row = session.exec(select(Project.rev, Project.status).where(Project.id == project_id)).first()
+    if not row:
+        raise ApiError(404, "not_found", "That lesson doesn't exist, or it was deleted.")
+    editors = session.exec(select(func.count()).select_from(Member).where(Member.project_id == project_id)).one()
+    return {"rev": row[0] or 0, "status": row[1], "editors": editors}
+
+
+class InviteIn(BaseModel):
+    reset: bool = False  # replace the link, so the old one stops working
+
+
+@app.post("/api/projects/{project_id}/invite")
+def invite(project_id: str, session: SessionDep, owner: OwnerDep, body: InviteIn | None = None):
+    """Turn on the link that lets other people edit this lesson. Whoever opens it becomes an
+    editor; everything they change lands in the history, where it can be undone."""
+    project = owned_project(session, project_id, owner)
+    if not project.invite_token or (body and body.reset):
+        project.invite_token = secrets.token_urlsafe(18)
+        session.add(project)
+        session.commit()
+        session.refresh(project)
+    return lesson_out(session, project, owner)
+
+
+@app.delete("/api/projects/{project_id}/invite")
+def stop_inviting(project_id: str, session: SessionDep, owner: OwnerDep):
+    """Turn the invite link off. People who already joined keep editing until they're removed."""
+    project = owned_project(session, project_id, owner)
+    project.invite_token = ""
+    session.add(project)
+    session.commit()
+    session.refresh(project)
+    return lesson_out(session, project, owner)
+
+
+PersonName = Annotated[str, StringConstraints(strip_whitespace=True, max_length=40)]
+
+
+class JoinIn(BaseModel):
+    token: str = Field(min_length=10, max_length=100)
+    name: PersonName = ""
+
+
+@app.post("/api/projects/{project_id}/join")
+def join_project(project_id: str, body: JoinIn, session: SessionDep, owner: OwnerDep):
+    """Opening an invite link makes this browser an editor of the lesson."""
+    project = load_project(session, project_id)
+    member = member_of(session, project_id, owner)
+    if project.owner != owner and member is None:
+        lock_project(session, project_id)  # two people joining at once count the editors one after the other
+        session.refresh(project)
+        if not project.invite_token or not hmac.compare_digest(project.invite_token.encode(), body.token.encode()):
+            raise ApiError(403, "bad_invite", "That invite link doesn't work any more. Ask whoever sent it for a new one.")
+        if len(members_of(session, project_id)) >= MAX_MEMBERS:
+            raise ApiError(409, "full", f"This lesson already has {MAX_MEMBERS} editors, which is the most it can have.")
+        session.add(Member(project_id=project_id, browser=owner, name=body.name))
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()  # the same browser joined twice at once: it's in
+    return lesson_out(session, load_project(session, project_id), owner)
+
+
+@app.delete("/api/projects/{project_id}/members/{member_id}")
+def remove_member(project_id: str, member_id: int, session: SessionDep, owner: OwnerDep):
+    """The owner removes an editor, or an editor leaves."""
+    project = load_project(session, project_id)
+    member = session.get(Member, member_id)
+    if not member or member.project_id != project_id:
+        raise ApiError(404, "not_found", "That person isn't an editor of this lesson.")
+    if project.owner != owner and member.browser != owner:
+        raise ApiError(403, "not_owner", "Only the person who made this lesson can remove an editor.")
+    session.delete(member)
+    session.commit()
+    return lesson_out(session, load_project(session, project_id), owner)
+
+
+class MeIn(BaseModel):
+    name: PersonName
+
+
+@app.put("/api/projects/{project_id}/me")
+def set_my_name(project_id: str, body: MeIn, session: SessionDep, owner: OwnerDep):
+    """What the others see next to this person's changes. There are no accounts, so a name
+    is whatever someone says it is, per lesson."""
+    project = editable_project(session, project_id, owner)
+    if project.owner == owner:
+        project.owner_name = body.name
+        session.add(project)
+    elif member := member_of(session, project_id, owner):
+        member.name = body.name
+        session.add(member)
+    session.commit()
+    return lesson_out(session, load_project(session, project_id), owner)
 
 
 # ---------------------------------------------------------------- lessons made elsewhere
@@ -741,6 +1037,8 @@ def create_imported(session: Session, board: Storyboard, question: str, origin: 
                       topic=question, title=board.title, storyboard=board.model_dump(), status="ready",
                       voice_id=tts.voice_id(), repo=repo, repo_sha=repo_sha)
     session.add(project)
+    history.record(session, project.id, board.model_dump(), kind="import", repo_sha=repo_sha,
+                   message="Made in the Claude app" if origin == "connector" else "Made with Claude Code")
     session.commit()
     session.refresh(project)
     limits.settle(session, usage_id, project_id=project.id)
@@ -779,7 +1077,7 @@ def claim_project(project_id: str, body: ClaimIn, session: SessionDep, owner: Ow
     """The browser that opens a lesson's claim link first becomes its owner. The link works once."""
     project = load_project(session, project_id)
     if project.owner == owner:
-        return project_out(project, owner, voices_for(session, project))
+        return lesson_out(session, project, owner)
     if project.owner or not project.claim_hash:
         raise ApiError(409, "already_claimed", "This lesson already belongs to someone. You can still watch it.")
     if not hmac.compare_digest(project.claim_hash, hashlib.sha256(body.token.encode()).hexdigest()):
@@ -793,7 +1091,7 @@ def claim_project(project_id: str, body: ClaimIn, session: SessionDep, owner: Ow
         raise ApiError(409, "already_claimed", "This lesson already belongs to someone. You can still watch it.")
     project = session.get(Project, project_id)
     session.refresh(project)
-    return project_out(project, owner, voices_for(session, project))
+    return lesson_out(session, project, owner)
 
 
 @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])

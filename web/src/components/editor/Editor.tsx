@@ -4,6 +4,7 @@ import {
   Check,
   CloudOff,
   FastForward,
+  History as HistoryIcon,
   Link2,
   Loader2,
   Mic,
@@ -13,6 +14,8 @@ import {
   Rewind,
   SkipBack,
   SkipForward,
+  Users,
+  X,
 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
@@ -25,27 +28,49 @@ import { TextShimmer } from "@/components/ui/text-shimmer"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { githubUrl } from "@/lib/api"
+import { ApiError, githubUrl, type VersionFull } from "@/lib/api"
 import { deleteScene, duplicateScene, insertScene, MAX_SCENES, moveScene, updateScene } from "@/lib/edit"
 import { buildTimeline, captionAt, clock, sceneAt } from "@/lib/timing"
 import { RATES, usePlayback } from "@/lib/usePlayback"
 import { cn } from "@/lib/utils"
 
 import { AskAI } from "./AskAI"
+import { History } from "./History"
 import { SceneInspector, VoiceRow } from "./SceneInspector"
 import { Script } from "./Script"
+import { ShareDialog } from "./ShareDialog"
 import { Timeline } from "./Timeline"
 import type { EditorHost, VoiceState } from "./types"
 
 export function Editor({ host, banner }: { host: EditorHost; banner?: React.ReactNode }) {
-  const { board, voices } = host
+  const { voices } = host
+  // Looking at an older version puts its storyboard on the stage in place of the lesson's.
+  // It plays like any lesson; nothing can be changed until you stop looking.
+  const [viewing, setViewing] = useState<VersionFull | null>(null)
+  const board = viewing?.storyboard ?? host.board
   // while an AI edit runs, hand edits pause, so its reply can't overwrite what you typed
-  const editable = host.editable && !host.locked
+  const editable = host.editable && !host.locked && !viewing
+  const voiceState = viewing
+    ? (id: string): VoiceState => {
+        const scene = board.scenes.find((s) => s.id === id)
+        return scene && voices[id]?.text === scene.narration ? { kind: "voiced" } : { kind: "stale" }
+      }
+    : host.voiceState
+  // an older version's code may come from an older commit
+  const repo = viewing?.repo_sha && host.repo ? { name: host.repo.name, sha: viewing.repo_sha } : host.repo
+  const [sharing, setSharing] = useState(false)
+  const [restoring, setRestoring] = useState(false)
   const timeline = useMemo(() => buildTimeline(board, voices), [board, voices])
   const pb = usePlayback(timeline)
   const [selectedId, setSelectedId] = useState<string | null>(board.scenes[0]?.id ?? null)
   const [cc, setCc] = useState(true)
   const [tab, setTab] = useState(host.editable ? "scene" : "script")
+  // someone who just became an editor (an invite or claim link answered) lands on the editing tab
+  const [wasEditable, setWasEditable] = useState(host.editable)
+  if (host.editable !== wasEditable) {
+    setWasEditable(host.editable)
+    if (host.editable && tab === "script") setTab("scene")
+  }
 
   const current = sceneAt(timeline, pb.time)
   const activeId = pb.playing ? (current?.id ?? null) : selectedId
@@ -136,7 +161,22 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
   }, [pb, timeline])
 
   const patchScene = (id: string, patch: Parameters<typeof updateScene>[2]) => host.setBoard(updateScene(board, id, patch))
-  const stale = board.scenes.filter((s) => host.voiceState(s.id).kind === "stale").length
+  const stale = board.scenes.filter((s) => voiceState(s.id).kind === "stale").length
+  const editors = host.sharing?.people.length ?? 0
+
+  const goBackToViewed = async () => {
+    if (!viewing || !host.history || restoring) return
+    setRestoring(true)
+    try {
+      await host.history.restore(viewing.id)
+      toast.success(`The lesson is back at version ${viewing.number}.`, { description: "The versions after it are still in History, so you can undo this." })
+      setViewing(null)
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Couldn't go back to that version.")
+    } finally {
+      setRestoring(false)
+    }
+  }
 
   const sceneName = (id: string) => {
     const i = board.scenes.findIndex((s) => s.id === id)
@@ -152,12 +192,12 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-medium">{board.title}</h1>
           <p className="truncate text-[11px] text-muted-foreground">
-            {host.repo ? (
-              <a href={githubUrl(host.repo)} target="_blank" rel="noreferrer" className="font-mono hover:text-foreground hover:underline">
-                {host.repo.name}@{host.repo.sha.slice(0, 7)}
+            {repo ? (
+              <a href={githubUrl(repo)} target="_blank" rel="noreferrer" className="font-mono hover:text-foreground hover:underline">
+                {repo.name}@{repo.sha.slice(0, 7)}
               </a>
             ) : null}
-            {host.repo ? " · " : ""}
+            {repo ? " · " : ""}
             {board.scenes.length} scenes · {clock(timeline.total)}
           </p>
         </div>
@@ -168,26 +208,42 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
           </Button>
         ) : null}
         {host.shareUrl ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  navigator.clipboard.writeText(host.shareUrl!).then(
-                    () => toast.success("Link copied. Anyone with it can watch."),
-                    () => toast.error("Couldn't copy the link."),
-                  )
-                }}
-              >
-                <Link2 /> <span className="hidden sm:inline">Share</span>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Copy a link anyone can watch</TooltipContent>
-          </Tooltip>
+          <>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="sm" variant="outline" onClick={() => setSharing(true)} aria-label={editors > 1 ? `Share. ${editors} people can edit` : "Share"}>
+                  {editors > 1 ? <Users /> : <Link2 />}
+                  <span className="hidden sm:inline">Share</span>
+                  {editors > 1 ? <span className="font-mono tabular-nums">{editors}</span> : null}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{host.sharing ? "Links to watch, or to edit together" : "A link anyone can watch"}</TooltipContent>
+            </Tooltip>
+            <ShareDialog open={sharing} onOpenChange={setSharing} shareUrl={host.shareUrl} sharing={host.sharing} />
+          </>
         ) : null}
       </header>
       {banner}
+      {viewing ? (
+        <div role="status" className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-ember/40 bg-ember-soft/60 px-4 py-2 text-xs">
+          <HistoryIcon className="size-3.5 shrink-0 text-ember" aria-hidden />
+          <span className="min-w-0 flex-1 basis-56 text-muted-foreground">
+            <span className="font-medium text-foreground">
+              You're looking at version {viewing.number}
+              {viewing.name ? `, “${viewing.name}”` : ""}
+            </span>{" "}
+            from {new Date(viewing.updated_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}. The lesson itself hasn't changed.
+          </span>
+          <span className="flex gap-1.5">
+            <Button size="xs" onClick={goBackToViewed} disabled={restoring || !!host.locked}>
+              {restoring ? <Loader2 className="animate-spin" /> : null} Go back to this version
+            </Button>
+            <Button size="xs" variant="outline" onClick={() => setViewing(null)}>
+              <X /> Stop looking
+            </Button>
+          </span>
+        </div>
+      ) : null}
       {host.locked ? (
         <div role="status" className="flex items-center gap-2 border-b border-border bg-ember-soft/40 px-4 py-2 text-xs text-muted-foreground">
           <Loader2 className="size-3.5 shrink-0 animate-spin text-ember motion-reduce:animate-none" aria-hidden /> <TextShimmer duration={2.4}>{host.locked}</TextShimmer>
@@ -206,7 +262,7 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
                     title={board.title}
                     scene={scene}
                     active={scene.id === activeId}
-                    voice={host.voiceState(scene.id)}
+                    voice={voiceState(scene.id)}
                     seconds={timeline.scenes[i]?.duration ?? 0}
                     onClick={() => select(scene.id)}
                   />
@@ -306,7 +362,7 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
                     title={board.title}
                     scene={scene}
                     active={scene.id === activeId}
-                    voice={host.voiceState(scene.id)}
+                    voice={voiceState(scene.id)}
                     seconds={timeline.scenes[i]?.duration ?? 0}
                     onClick={() => select(scene.id)}
                     compact
@@ -320,21 +376,22 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
         {/* inspector */}
         <aside aria-label="Edit" className="flex shrink-0 flex-col border-t border-border bg-panel lg:w-[372px] lg:border-t-0 lg:border-l">
           <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col gap-0">
-            <TabsList className="m-3 mb-0 grid w-auto grid-cols-3">
+            <TabsList className={cn("m-3 mb-0 grid w-auto", host.history ? "grid-cols-4" : "grid-cols-3")}>
               <TabsTrigger value="scene">{editable ? "Edit scene" : "Scene"}</TabsTrigger>
               <TabsTrigger value="script">Script</TabsTrigger>
               <TabsTrigger value="ai">Ask AI</TabsTrigger>
+              {host.history ? <TabsTrigger value="history">History</TabsTrigger> : null}
             </TabsList>
             <ScrollArea className="min-h-0 flex-1">
               <TabsContent value="scene">
                 {activeScene && editable ? (
                   <SceneInspector
                     scene={activeScene}
-                    repo={host.repo}
+                    repo={repo}
                     sourcesLocked={host.sourcesLocked}
                     index={activeIndex}
                     count={board.scenes.length}
-                    voice={host.voiceState(activeScene.id)}
+                    voice={voiceState(activeScene.id)}
                     onChange={(patch) => patchScene(activeScene.id, patch)}
                     onVoice={host.voiceScene ? () => host.voiceScene!(activeScene.id) : undefined}
                     onMove={(by) => host.setBoard(moveScene(board, activeScene.id, by))}
@@ -349,8 +406,14 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
                   <div className="flex flex-col gap-3 p-4 text-sm">
                     <p className="font-serif text-2xl leading-tight">{activeScene.heading}</p>
                     <p className="leading-relaxed text-muted-foreground">{activeScene.narration}</p>
-                    <VoiceRow voice={host.voiceState(activeScene.id)} />
-                    <p className="text-xs text-muted-foreground">You're watching. Only the person who made this lesson can change it.</p>
+                    <VoiceRow voice={voiceState(activeScene.id)} />
+                    <p className="text-xs text-muted-foreground">
+                      {viewing
+                        ? `This is the scene as it was in version ${viewing.number}. Stop looking to edit the lesson as it is now.`
+                        : host.locked
+                          ? host.locked
+                          : "You're watching. Only the person who made this lesson, and people they invite, can change it."}
+                    </p>
                   </div>
                 ) : null}
               </TabsContent>
@@ -370,12 +433,23 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
                 <AskAI
                   scene={activeScene}
                   sceneIndex={activeIndex}
-                  aiEdit={host.editable ? host.aiEdit : null}
-                  unavailable={host.editable ? host.aiUnavailable : "Only the person who made this lesson can ask for changes."}
+                  aiEdit={host.editable && !viewing ? host.aiEdit : null}
+                  unavailable={
+                    viewing
+                      ? "You're looking at an older version. Stop looking to ask for changes to the lesson as it is now."
+                      : host.editable
+                        ? host.aiUnavailable
+                        : "Only the person who made this lesson, and people they invite, can ask for changes."
+                  }
                   onJump={select}
                   sceneName={sceneName}
                 />
               </TabsContent>
+              {host.history ? (
+                <TabsContent value="history">
+                  <History host={host.history} viewing={viewing?.id ?? null} onView={setViewing} locked={host.locked} />
+                </TabsContent>
+              ) : null}
             </ScrollArea>
           </Tabs>
         </aside>
@@ -387,7 +461,7 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
         board={board}
         time={pb.time}
         activeId={activeId}
-        voiceState={host.voiceState}
+        voiceState={voiceState}
         onSeek={seek}
         onSelect={select}
       />
