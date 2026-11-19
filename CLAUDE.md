@@ -5,8 +5,10 @@ lesson that walks through the real code, which you can watch and edit like a vid
 reads the repository with tools and writes the lesson as a storyboard of scenes; every code
 scene cites a file and line range, and the server fills in the real lines; ElevenLabs voices
 each scene; the browser plays it with captions synced to the voice. You fix it by hand on a
-timeline, or ask the AI to change one scene at a time. (Topic lessons without a repository
-still work in the API; the page only offers repositories since slices 13 to 15.)
+timeline, or ask the AI to change one scene at a time. Every change is kept as a version
+you can look at and go back to, and an invite link lets other people edit the same lesson.
+(Topic lessons without a repository still work in the API; the page only offers
+repositories since slices 13 to 15.)
 
 Final project for ENGR 190BO (AI-Amplified Prototyping, HMC, Fall 2026). The project
 brief's requirements and rubric are the spec: https://course.aiprototypes.org/resources/
@@ -72,6 +74,26 @@ scenes that changed get re-voiced and the person can still tweak everything by h
   raise `ToolError` (the SDK hides other exceptions' messages from the model).
 - The session manager runs once per instance, so `lifespan` builds a fresh `/mcp` route on
   every start.
+
+## History and editing together (backend/app/history.py, merge.py)
+
+- Every change to a storyboard goes through one of four doors (hand save, AI edit, write,
+  going back to a version), and each bumps `Project.rev` and calls `history.record` in the
+  same transaction. A new way to change a storyboard must do both.
+- Versions are whole storyboards. Hand saves a few minutes apart fold into one version; a
+  version someone named is never folded into or pruned. Going back adds a version on top
+  (a revert, never a reset), so nothing in the history is ever lost.
+- There are still no accounts. The owner turns on an invite link (`/l/<id>?join=<token>`);
+  a browser that opens it becomes a `Member` and can edit, voice and ask the AI from its own
+  daily allowance. Deleting, rewriting from scratch and inviting stay with the owner. Browser
+  ids are credentials: never send one to another browser (people are known by `Member.id`).
+- A hand save sends the storyboard it started from (`base`). If the lesson moved on since,
+  `merge.merge` keeps both people's changes, scene by scene and field by field; where both
+  changed the same field the save wins and the response says so (`conflicts`). The page
+  never merges: it sends `base`, and takes the server's answer when it has nothing unsaved.
+- An AI edit is still applied only if nothing was saved while Claude worked (it isn't
+  merged), so in a shared lesson it can come back "changed meanwhile".
+- New scene ids are random (`s` and digits) so two people adding scenes don't collide.
 
 ## Rules
 
