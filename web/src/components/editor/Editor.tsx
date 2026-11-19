@@ -127,11 +127,13 @@ export function Editor({ host, banner }: { host: EditorHost; banner?: React.Reac
   // pauses, the arrows skip 5 seconds, J and L skip 10, and < and > change the speed.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return
+      // a control that already used the key (a menu button opening its menu) keeps it
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return
       const el = e.target as HTMLElement
       if (el.closest("input, textarea, select, [contenteditable], [role=combobox], [role=slider]")) return
-      // arrows and letters already mean something in tabs, menus and dialogs
-      const inWidget = !!el.closest("[role=tablist], [role=menu], [role=listbox], [role=radiogroup], [role=dialog]")
+      // arrows and letters already mean something in tabs, menus and dialogs, and Space on a
+      // button that opens a menu opens the menu
+      const inWidget = !!el.closest("[role=tablist], [role=menu], [role=listbox], [role=radiogroup], [role=dialog], [aria-haspopup]")
       if (e.code === "Space") {
         if (inWidget) return
         e.preventDefault()
