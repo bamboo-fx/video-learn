@@ -8,7 +8,7 @@ import secrets
 import threading
 import re
 from contextlib import asynccontextmanager, contextmanager
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import Depends, FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
@@ -206,6 +206,9 @@ class ProjectIn(BaseModel):
     topic: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=200)]
     repo: str = Field(default="", max_length=300, description="A public GitHub repository link, or empty for a topic lesson.")
     notes: str = Field(default="", max_length=12000)
+    mode: Literal["walkthrough", "bottom_up"] = Field(default="walkthrough", description="How to explain it (llm.MODES).")
+    # Older pages sent an audience level and a length. Still accepted so they don't break,
+    # but each mode now sets its own audience and length.
     level: str = Field(default="intro", pattern="^(intro|intermediate|advanced)$")
     minutes: int = Field(default=3, ge=1, le=5)
 
@@ -273,6 +276,7 @@ def project_out(project: Project, owner: str | None, voices: dict[str, Any] | No
         "topic": project.topic,
         # notes are the owner's own material; a share link shows the lesson, not the notes
         "notes": project.notes if owner is not None and owner == project.owner else "",
+        "mode": project.mode or llm.DEFAULT_MODE,
         "level": project.level,
         "minutes": project.minutes,
         "title": project.title or project.topic,
@@ -349,7 +353,7 @@ def create_project(body: ProjectIn, session: SessionDep, owner: OwnerDep):
         except github.RepoError as exc:
             raise ApiError(exc.status, exc.code, exc.message) from exc
         repo = f"{o}/{r}"
-    project = Project(owner=owner, topic=body.topic.strip(), notes=body.notes.strip(), level=body.level, minutes=body.minutes,
+    project = Project(owner=owner, topic=body.topic.strip(), notes=body.notes.strip(), mode=body.mode, level=body.level, minutes=body.minutes,
                       repo=repo, repo_ref=(ref or "") if repo else "")
     session.add(project)
     session.commit()
@@ -570,7 +574,7 @@ def write_project(project_id: str, session: SessionDep, owner: OwnerDep):
         raise ApiError(409, "already_writing", "This lesson is already being written.")
 
     project = session.get(Project, project_id)
-    topic, notes, level, minutes, repo, ref = project.topic, project.notes, project.level, project.minutes, project.repo, project.repo_ref or ""
+    topic, notes, mode, repo, ref = project.topic, project.notes, project.mode or llm.DEFAULT_MODE, project.repo, project.repo_ref or ""
     before, before_sha, author = project.storyboard, project.repo_sha or "", name_of(session, project, owner)
     voice_id = project.voice_id or tts.voice_id()
     session.close()  # don't hold a database connection while GitHub or Claude works
@@ -586,9 +590,9 @@ def write_project(project_id: str, session: SessionDep, owner: OwnerDep):
             # failed rewrite never points the old lesson at different code.
             set_project(session, project_id, progress=[f"Read {len(snap.files)} files from github.com/{snap.name}"])
             session.close()
-            board, calls = llm.write_repo_lesson(snap, topic, level, minutes, progress)
+            board, calls = llm.write_repo_lesson(snap, topic, mode, progress)
         else:
-            board, call = llm.write_storyboard(topic, notes, level, minutes)
+            board, call = llm.write_storyboard(topic, notes, mode)
             calls = [call]
     except github.RepoError as exc:
         settle_calls(session, usage_id, [], error=exc.code)  # cost nothing: the allowance comes back

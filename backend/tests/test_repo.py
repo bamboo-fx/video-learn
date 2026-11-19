@@ -160,7 +160,7 @@ def test_repo_lesson_reads_then_submits_and_fixes_citations(monkeypatch):
 
     monkeypatch.setattr(llm, "_call", fake_call)
     progress = []
-    board, calls = llm.write_repo_lesson(snap, "How does it greet?", "intro", 2, progress.append)
+    board, calls = llm.write_repo_lesson(snap, "How does it greet?", "walkthrough", progress.append)
     assert len(calls) == 3
     assert board.scenes[1].code.startswith("def hello")
     assert progress[0] == "Reading greet.py"
@@ -175,7 +175,7 @@ def test_repo_write_route(client, monkeypatch):
     owner = {"X-Owner": "repo-route-owner-0123456789"}
     snap = snapshot()
     monkeypatch.setattr(github, "download", lambda o, r, ref=None: snap)
-    monkeypatch.setattr(llm, "write_repo_lesson", lambda s, q, lvl, m, progress: (grounding.ground(repo_board(), s), [llm.Call("claude-test", 9000, 2000, 30000)]))
+    monkeypatch.setattr(llm, "write_repo_lesson", lambda s, q, mode, progress: (grounding.ground(repo_board(), s), [llm.Call("claude-test", 9000, 2000, 30000)]))
     p = client.post("/api/projects", json={"topic": "How does it greet?", "repo": "https://github.com/octo/tiny"}, headers=owner).json()
     assert p["repo"] == "octo/tiny"
     r = client.post(f"/api/projects/{p['id']}/write", headers=owner)
@@ -231,7 +231,7 @@ def test_a_repo_lesson_counts_as_one_lesson_however_many_requests(client, monkey
     monkeypatch.setattr(github, "head_sha", lambda *a: None)
     monkeypatch.setattr(github, "download", lambda o, r, ref=None: snap)
     many = [llm.Call("claude-test", 1000, 100, 10) for _ in range(30)]
-    monkeypatch.setattr(llm, "write_repo_lesson", lambda s, q, lvl, m, progress: (grounding.ground(repo_board(), s), many))
+    monkeypatch.setattr(llm, "write_repo_lesson", lambda s, q, mode, progress: (grounding.ground(repo_board(), s), many))
     first = client.post("/api/projects", json={"topic": "One", "repo": "octo/tiny"}, headers=owner).json()
     assert client.post(f"/api/projects/{first['id']}/write", headers=owner).status_code == 200
     second = client.post("/api/projects", json={"topic": "Two", "repo": "octo/tiny"}, headers=owner).json()
@@ -256,7 +256,7 @@ def test_repo_name_is_stored_the_way_github_spells_it(client, monkeypatch):
     snap = snapshot()  # GitHub calls it octo/tiny
     monkeypatch.setattr(github, "head_sha", lambda *a: None)
     monkeypatch.setattr(github, "download", lambda o, r, ref=None: snap)
-    monkeypatch.setattr(llm, "write_repo_lesson", lambda s, q, lvl, m, progress: (grounding.ground(repo_board(), s), [llm.Call("c", 1, 1, 1)]))
+    monkeypatch.setattr(llm, "write_repo_lesson", lambda s, q, mode, progress: (grounding.ground(repo_board(), s), [llm.Call("c", 1, 1, 1)]))
     p = client.post("/api/projects", json={"topic": "Case", "repo": "github.com/Octo/Tiny"}, headers=owner).json()
     written = client.post(f"/api/projects/{p['id']}/write", headers=owner).json()
     assert written["repo"] == "octo/tiny"
@@ -420,7 +420,7 @@ def test_a_failed_rewrite_keeps_the_old_commit(client, monkeypatch):
     first = github.Snapshot("octo", "tiny", "1" * 40, "main", "", dict(FILES))
     monkeypatch.setattr(github, "head_sha", lambda *a: None)
     monkeypatch.setattr(github, "download", lambda o, r, ref=None: first)
-    monkeypatch.setattr(llm, "write_repo_lesson", lambda s, q, lvl, m, progress: (grounding.ground(repo_board(), s), [llm.Call("c", 1, 1, 1)]))
+    monkeypatch.setattr(llm, "write_repo_lesson", lambda s, q, mode, progress: (grounding.ground(repo_board(), s), [llm.Call("c", 1, 1, 1)]))
     p = client.post("/api/projects", json={"topic": "Rewrite", "repo": "octo/tiny"}, headers=owner).json()
     assert client.post(f"/api/projects/{p['id']}/write", headers=owner).json()["repo_sha"] == "1" * 40
 
@@ -514,8 +514,58 @@ def test_mixed_models_are_priced_per_request(client, monkeypatch):
     monkeypatch.setattr(github, "head_sha", lambda *a: None)
     monkeypatch.setattr(github, "download", lambda o, r, ref=None: snap)
     calls = [llm.Call("claude-opus-5-5", 1_000_000, 0, 1), llm.Call("claude-haiku-5-5", 1_000_000, 0, 1)]
-    monkeypatch.setattr(llm, "write_repo_lesson", lambda s, q, lvl, m, progress: (grounding.ground(repo_board(), s), calls))
+    monkeypatch.setattr(llm, "write_repo_lesson", lambda s, q, mode, progress: (grounding.ground(repo_board(), s), calls))
     p = client.post("/api/projects", json={"topic": "Mixed", "repo": "octo/tiny"}, headers=owner).json()
     client.post(f"/api/projects/{p['id']}/write", headers=owner)
     usage = client.get(f"/api/projects/{p['id']}/usage", headers=owner).json()["calls"]
     assert usage[0]["cost_usd"] == 4.1  # $4 for Opus plus $0.10 for Haiku, not $0.20
+
+
+# ---------------------------------------------------------------- explanation modes
+
+
+def test_the_route_modes_are_the_prompt_modes():
+    from typing import get_args
+
+    from app.main import ProjectIn
+
+    assert set(get_args(ProjectIn.model_fields["mode"].annotation)) == set(llm.MODES)
+
+
+def test_the_mode_reaches_claude(client, monkeypatch):
+    owner = {"X-Owner": "mode-owner-0123456789abcdef"}
+    snap = snapshot()
+    monkeypatch.setattr(github, "download", lambda o, r, ref=None: snap)
+    sent = []
+
+    def fake_call(**kwargs):
+        sent.append(kwargs)
+        board = repo_board().model_dump()
+        return SimpleNamespace(content=[SimpleNamespace(type="tool_use", id="t1", name="submit_lesson", input=board)]), llm.Call("claude-test", 1, 1, 1)
+
+    monkeypatch.setattr(llm, "_call", fake_call)
+    p = client.post("/api/projects", json={"topic": "How does it greet?", "repo": "octo/tiny", "mode": "bottom_up"}, headers=owner).json()
+    assert p["mode"] == "bottom_up"
+    assert client.post(f"/api/projects/{p['id']}/write", headers=owner).status_code == 200
+    first = sent[0]["messages"][0]["content"]
+    assert "How to explain (Bottom-up)" in first and "smallest concrete piece" in first
+    assert f"over about {llm.MAX_SCENES} scenes" in first and "about 4 minutes" in first
+    assert "follow it" in sent[0]["system"]  # the mode wins over the general advice
+
+
+def test_topic_lessons_get_the_mode_too():
+    walk = llm._write_prompt("Gradient descent", "", "walkthrough")
+    bottom = llm._write_prompt("Gradient descent", "", "bottom_up")
+    assert "How to explain (Walkthrough)" in walk and "about 3 minutes" in walk
+    assert "How to explain (Bottom-up)" in bottom and "Concrete before abstract" in bottom
+    # an unknown or missing mode (rows from before modes) means the default
+    assert llm._write_prompt("Gradient descent", "", None) == walk
+
+
+def test_old_pages_that_send_level_and_minutes_still_work(client):
+    owner = {"X-Owner": "old-page-owner-0123456789ab"}
+    r = client.post("/api/projects", json={"topic": "Old page", "level": "advanced", "minutes": 5}, headers=owner)
+    assert r.status_code == 201, r.text
+    assert r.json()["mode"] == "walkthrough"
+    bad = client.post("/api/projects", json={"topic": "Bad mode", "mode": "telepathy"}, headers=owner)
+    assert bad.status_code == 422

@@ -102,11 +102,71 @@ def _call(**kwargs: Any) -> tuple[Any, Call]:
 
 # ---------------------------------------------------------------- writing a lesson
 
-LEVELS = {
-    "intro": "a curious beginner who has never studied this: no jargon without a plain explanation, one idea at a time",
-    "intermediate": "a college student who has taken an intro course: name the real terms, skip the very basics",
-    "advanced": "someone who knows the field and wants precision: exact terms, the subtle parts, no hand-holding",
+@dataclass(frozen=True)
+class Mode:
+    """A way of explaining, for one kind of learning goal. The mode sets who the lesson is
+    for, how long it runs and how it's built; the person only picks the mode."""
+
+    label: str
+    minutes: int
+    scenes: int
+    audience: str
+    approach: str
+
+
+MODES: dict[str, Mode] = {
+    # roughly what lessons were before modes: intro audience, about three minutes
+    "walkthrough": Mode(
+        label="Walkthrough",
+        minutes=3,
+        scenes=8,
+        audience="someone new to this who wants the whole picture: no jargon without a plain explanation",
+        approach=(
+            "Walk through it in the order things happen: say why it matters, then follow the real path "
+            "one idea per scene, show it working on a concrete example, and end with the takeaways."
+        ),
+    ),
+    # "explain this hyper intuitively bottoms up with the most simple step by step animations
+    # so i really understand concretely"
+    "bottom_up": Mode(
+        label="Bottom-up",
+        minutes=4,
+        scenes=MAX_SCENES,
+        audience="someone who wants to really understand it, concretely, from the ground up: assume nothing",
+        approach=(
+            "Explain it bottom-up, hyper intuitively.\n"
+            "- Start from the smallest concrete piece (one value, one line, one tiny function, one real "
+            "input) and show exactly what it is with a real example, before anything is named in general.\n"
+            "- Build upward one step at a time. Each scene adds exactly one new idea on top of the scene "
+            "before it, and its narration says how it builds on that scene. Never introduce two ideas at once.\n"
+            "- Concrete before abstract, every time: show a specific case with real values first, then name "
+            "the general idea it is an instance of.\n"
+            "- Keep every scene small and simple: at most three items, each a few words, revealed one at a "
+            "time (give each item its own `at` sentence, in order) so the picture builds as it's spoken. "
+            "Prefer example, steps and flow scenes; keep code scenes to the 3 to 8 lines that matter.\n"
+            "- Use more, smaller scenes rather than fewer, bigger ones. Skip the opening pitch: the title "
+            "scene just names the thing, and the first real scene starts at the bottom.\n"
+            "- End with a summary that stacks the layers from the bottom piece to the whole."
+        ),
+    ),
 }
+
+DEFAULT_MODE = "walkthrough"
+
+
+def mode_of(name: str | None) -> Mode:
+    return MODES.get(name or "", MODES[DEFAULT_MODE])
+
+
+def _mode_brief(mode: Mode) -> str:
+    words = mode.minutes * 150
+    return (
+        f"Audience: {mode.audience}.\n\n"
+        f"How to explain ({mode.label}):\n{mode.approach}\n\n"
+        f"Length: about {mode.minutes} minutes spoken, so about {words} words of narration in total, "
+        f"over about {mode.scenes} scenes."
+    )
+
 
 LAYOUT_GUIDE = "\n".join(f"- {name}: {desc}" for name, desc in LAYOUTS.items())
 
@@ -125,6 +185,7 @@ How a good lesson works:
   sentence (counting from 0) that introduces it. Sentences end with . ! or ?
 - Every scene id is s1, s2, s3... in order.
 - Be correct. If you aren't sure of a fact, leave it out rather than guess.
+- The request says how to explain this lesson. Where that differs from the advice above, follow it.
 
 Layouts:
 {LAYOUT_GUIDE}
@@ -132,14 +193,8 @@ Layouts:
 Limits: at most {MAX_SCENES} scenes, at most {MAX_ITEMS} items a scene, at most 14 lines of code."""
 
 
-def _write_prompt(topic: str, notes: str, level: str, minutes: int) -> str:
-    words = minutes * 150
-    scenes = max(4, min(MAX_SCENES, round(minutes * 2.3) + 1))
-    parts = [
-        f"Topic: {topic}",
-        f"Audience: {LEVELS.get(level, LEVELS['intro'])}.",
-        f"Length: about {minutes} minutes spoken, so about {words} words of narration in total, over about {scenes} scenes.",
-    ]
+def _write_prompt(topic: str, notes: str, mode: str) -> str:
+    parts = [f"Topic: {topic}", _mode_brief(mode_of(mode))]
     if notes:
         parts.append(
             "The learner pasted their own notes below. Teach what the notes teach, in the notes' terms and "
@@ -149,12 +204,12 @@ def _write_prompt(topic: str, notes: str, level: str, minutes: int) -> str:
     return "\n\n".join(parts)
 
 
-def write_storyboard(topic: str, notes: str, level: str, minutes: int) -> tuple[Storyboard, Call]:
+def write_storyboard(topic: str, notes: str, mode: str = DEFAULT_MODE) -> tuple[Storyboard, Call]:
     resp, call = _call(
         max_tokens=16000,
         output_config={"effort": "medium", "format": {"type": "json_schema", "schema": strict_json_schema(Storyboard)}},
         system=WRITE_SYSTEM,
-        messages=[{"role": "user", "content": _write_prompt(topic, notes, level, minutes)}],
+        messages=[{"role": "user", "content": _write_prompt(topic, notes, mode)}],
     )
     text = next((b.text for b in resp.content if getattr(b, "type", "") == "text"), "")
     try:
@@ -446,6 +501,7 @@ Work in two steps.
      ("main dot py", "the save storyboard function").
    - `at` is the index of the narration sentence (counting from 0) during which an item appears.
    - Scene ids are s1, s2, s3... in order.
+   - The request says how to explain this lesson. Where that differs from the advice above, follow it.
 
 Layouts:
 {LAYOUT_GUIDE}
@@ -477,16 +533,10 @@ def _run_read_tool(snap: github.Snapshot, name: str, args: dict[str, Any], progr
     raise ValueError(f"There is no tool called {name}.")
 
 
-def write_repo_lesson(snap: github.Snapshot, question: str, level: str, minutes: int, progress: Progress = lambda _: None) -> tuple[Storyboard, list[Call]]:
-    words = minutes * 150
-    scenes = max(4, min(MAX_SCENES, round(minutes * 2.3) + 1))
+def write_repo_lesson(snap: github.Snapshot, question: str, mode: str = DEFAULT_MODE, progress: Progress = lambda _: None) -> tuple[Storyboard, list[Call]]:
     messages: list[dict[str, Any]] = [{
         "role": "user",
-        "content": (
-            f"{_repo_brief(snap)}\n\nWhat they want to learn: {question}\n\n"
-            f"Audience: {LEVELS.get(level, LEVELS['intro'])}.\n"
-            f"Length: about {minutes} minutes spoken, so about {words} words of narration over about {scenes} scenes."
-        ),
+        "content": f"{_repo_brief(snap)}\n\nWhat they want to learn: {question}\n\n{_mode_brief(mode_of(mode))}",
     }]
     calls: list[Call] = []
     submissions = 0
