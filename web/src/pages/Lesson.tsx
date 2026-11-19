@@ -232,6 +232,7 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
   const [voicing, setVoicing] = useState<Record<string, boolean>>({})
   const [failed, setFailed] = useState<Record<string, string>>({})
   const [aiBusy, setAiBusy] = useState(false)
+  const [restoring, setRestoring] = useState(false)
   const voices = project.voices
 
   const dirty = useRef(false)
@@ -405,10 +406,11 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
     try {
       await save()
       result = await api.edit(project.id, instruction, sceneId)
+      // still locked while the answer replaces the board, so nothing typed in between is lost
+      await adopt(result.project, true)
     } finally {
       setAiBusy(false)
     }
-    await adopt(result.project, true)
     const changed = result.changes.filter((c) => c.kind === "updated" || c.kind === "inserted").map((c) => c.scene_id)
     if (voiceReady && changed.length) {
       const sb = result.project.storyboard!
@@ -472,7 +474,11 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
     // AI edits run on our server only for lessons Claude wrote here; a lesson made by your own
     // Claude (the skill or the connector) is changed there, at no cost to the site
     aiEdit: aiReady && project.origin === "web" ? aiEdit : null,
-    locked: aiBusy ? "Claude is editing the lesson. Hand edits are paused until it's done, so nothing you type gets overwritten." : undefined,
+    locked: aiBusy
+      ? "Claude is editing the lesson. Hand edits are paused until it's done, so nothing you type gets overwritten."
+      : restoring
+        ? "Going back to the earlier version. Hand edits are paused for a moment."
+        : undefined,
     aiUnavailable:
       project.origin === "local"
         ? "This lesson was made by Claude Code on your computer. To change it with AI, run /lesson again there. You can edit any scene by hand here."
@@ -485,11 +491,17 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
     history: project.can_edit
       ? {
           rev: project.rev,
-          list: () => api.versions(project.id),
+          list: (before) => api.versions(project.id, before),
           load: (versionId) => api.version(project.id, versionId),
           restore: async (versionId) => {
-            await save() // what's on screen becomes a version first, so going back loses nothing
-            await adopt(await api.restore(project.id, versionId), true)
+            // hand edits pause until the old version is on screen, so nothing typed meanwhile is replaced
+            setRestoring(true)
+            try {
+              await save() // what's on screen becomes a version first, so going back loses nothing
+              await adopt(await api.restore(project.id, versionId), true)
+            } finally {
+              setRestoring(false)
+            }
           },
           name: async (name) => {
             await save()

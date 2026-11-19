@@ -73,23 +73,31 @@ def _authors(have: list[str], author: str) -> list[str]:
 
 
 def record(session: Session, project_id: str, board: dict[str, Any], *, kind: str, message: str = "", author: str = "",
-           repo_sha: str = "", before: dict[str, Any] | None = None) -> Version | None:
+           repo_sha: str = "", before: dict[str, Any] | None = None, before_sha: str | None = None,
+           fold: bool = True) -> Version | None:
     """Add the lesson's new storyboard to its history. Doesn't commit: the caller saves the
-    version in the same transaction as the lesson, so the two can't disagree.
+    version in the same transaction as the lesson, so the two can't disagree. The caller
+    must already hold the lesson's row (it has updated it, or called main.lock_project), so
+    nobody names or folds the latest version while this reads it.
 
-    `before` is the storyboard this change replaced. A lesson from before there was a
-    history has no versions yet, so its old storyboard becomes the first one, and the
-    first change to it can be undone."""
+    `before` is the storyboard this change replaced, and `before_sha` the commit its code came
+    from (when the change also moved the lesson to another commit). A lesson from before there
+    was a history has no versions yet, so its old storyboard becomes the first one, and the
+    first change to it can be undone.
+
+    `fold=False` keeps a hand save from folding into the version before it: a save that clashed
+    with someone else's leaves theirs as its own version, since the page tells them it's there."""
     last = latest(session, project_id)
     if last is None and before is not None and before != board:
         last = Version(project_id=project_id, number=1, kind="start", message="Where the history starts",
-                       storyboard=before, title=before.get("title", ""), repo_sha=repo_sha)
+                       storyboard=before, title=before.get("title", ""),
+                       repo_sha=repo_sha if before_sha is None else before_sha)
         session.add(last)
         session.flush()
     if last is not None and last.storyboard == board:
         return last  # a save that changed nothing isn't a version
     t = now()
-    if (kind == "hand" and last is not None and last.kind == "hand" and not last.name
+    if (fold and kind == "hand" and last is not None and last.kind == "hand" and not last.name
             and t - _aware(last.updated_at) < FOLD and t - _aware(last.created_at) < FOLD_AT_MOST):
         parent = _before(session, last)
         if parent is not None and parent.storyboard == board:
@@ -134,9 +142,13 @@ def name_current(session: Session, project_id: str, board: dict[str, Any], name:
     return last
 
 
-def listing(session: Session, project_id: str, limit: int = 100) -> list[Version]:
-    """The newest versions, without their storyboards (the list doesn't show them)."""
-    return list(session.exec(select(Version).where(Version.project_id == project_id).options(defer(Version.storyboard))  # type: ignore[arg-type]
+def listing(session: Session, project_id: str, limit: int = 50, before: int | None = None) -> list[Version]:
+    """The newest versions (older than version id `before`, for the next page), without their
+    storyboards (the list doesn't show them)."""
+    query = select(Version).where(Version.project_id == project_id)
+    if before is not None:
+        query = query.where(col(Version.id) < before)
+    return list(session.exec(query.options(defer(Version.storyboard))  # type: ignore[arg-type]
                              .order_by(col(Version.id).desc()).limit(limit)).all())
 
 

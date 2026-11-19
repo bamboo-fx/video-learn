@@ -319,3 +319,69 @@ def test_an_imported_lesson_starts_its_history(client, example):
     assert client.post(f"/api/projects/{r.json()['id']}/claim", json={"token": token}, headers=owner).status_code == 200
     vs = versions(client, r.json()["id"], owner)
     assert [(v["kind"], v["message"]) for v in vs] == [("import", "Made with Claude Code")]
+
+
+# ---------------------------------------------------------------- review fixes
+
+
+def test_a_clashing_save_leaves_the_other_text_in_the_history(client, example):
+    """The page tells whoever lost a clash that their text is in History, so it must be."""
+    owner, guest = who("clash-a"), who("clash-b")
+    p = make(client, owner, example)
+    invite(client, p["id"], owner, guest)
+    start = client.get(f"/api/projects/{p['id']}", headers=owner).json()["storyboard"]
+    save(client, p["id"], changed(start, "s3", heading="Owner's words"), owner, base=start)
+    c = save(client, p["id"], changed(start, "s3", heading="Guest's words"), guest, base=start)
+    assert len(c.json()["conflicts"]) == 1
+    # both saves land inside the folding window; the clash must not fold over the owner's
+    headings = []
+    for v in versions(client, p["id"], owner):
+        full = client.get(f"/api/projects/{p['id']}/versions/{v['id']}", headers=owner).json()
+        headings.append(full["storyboard"]["scenes"][2]["heading"])
+    assert headings[:2] == ["Guest's words", "Owner's words"]
+
+
+def test_the_first_version_keeps_the_commit_its_code_came_from(example):
+    """A lesson with no history yet, rewritten at a newer commit: its old storyboard becomes the
+    first version, and that version must point at the old commit, not the new one."""
+    with Session(engine) as s:
+        old = changed(example, "s2", heading="Before the rewrite")
+        history.record(s, "sha-test", example, kind="write", repo_sha="new-sha", before=old, before_sha="old-sha")
+        s.commit()
+        first, second = s.exec(select(Version).where(Version.project_id == "sha-test").order_by(Version.id)).all()
+        assert (first.kind, first.repo_sha) == ("start", "old-sha")
+        assert (second.kind, second.repo_sha) == ("write", "new-sha")
+
+
+def test_the_history_comes_a_page_at_a_time(client, example, monkeypatch):
+    from app import main
+
+    monkeypatch.setattr(main, "VERSIONS_PAGE", 2)
+    owner = who("pages")
+    p = make(client, owner, example)
+    with Session(engine) as s:
+        for n in range(4):
+            history.record(s, p["id"], changed(example, "s2", heading=f"Heading {n}"), kind="ai", message=str(n))
+        s.commit()
+    first = client.get(f"/api/projects/{p['id']}/versions", headers=owner).json()
+    assert [v["message"] for v in first["versions"]] == ["3", "2"] and first["more"] is True
+    second = client.get(f"/api/projects/{p['id']}/versions?before={first['versions'][-1]['id']}", headers=owner).json()
+    assert [v["message"] for v in second["versions"]] == ["1", "0"] and second["more"] is True
+    third = client.get(f"/api/projects/{p['id']}/versions?before={second['versions'][-1]['id']}", headers=owner).json()
+    assert len(third["versions"]) == 1 and third["more"] is False
+
+
+def test_naming_and_joining_take_the_lock_without_changing_the_lesson(client, example):
+    owner, guest = who("lock-a"), who("lock-b")
+    p = make(client, owner, example)
+    rev = client.get(f"/api/projects/{p['id']}", headers=owner).json()["rev"]
+    assert client.post(f"/api/projects/{p['id']}/versions", json={"name": "Checkpoint"}, headers=owner).status_code == 201
+    invite(client, p["id"], owner, guest)
+    after = client.get(f"/api/projects/{p['id']}", headers=owner).json()
+    assert after["rev"] == rev and after["storyboard"] == p["storyboard"]
+    # a save right after naming starts a new version instead of folding into the named one
+    save(client, p["id"], changed(example, "s2", heading="After the checkpoint"), owner)
+    vs = versions(client, p["id"], owner)
+    assert vs[1]["name"] == "Checkpoint"
+    full = client.get(f"/api/projects/{p['id']}/versions/{vs[1]['id']}", headers=owner).json()
+    assert full["storyboard"]["scenes"][1]["heading"] == example["scenes"][1]["heading"]

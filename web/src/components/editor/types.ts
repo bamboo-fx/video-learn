@@ -1,4 +1,4 @@
-import type { EditResult, Person, RepoRef, Storyboard, VersionFull, VersionInfo, Voice } from "@/lib/api"
+import type { EditResult, Person, RepoRef, Storyboard, VersionFull, VersionPage, Voice } from "@/lib/api"
 
 /** Where a scene's narration stands with ElevenLabs. */
 export type VoiceState =
@@ -11,7 +11,8 @@ export type VoiceState =
 export interface HistoryHost {
   /** changes whenever the lesson does, so an open list knows to reload */
   rev: number
-  list: () => Promise<VersionInfo[]>
+  /** newest first, a page at a time; `before` = the oldest version id already shown */
+  list: (before?: number) => Promise<VersionPage>
   load: (versionId: number) => Promise<VersionFull>
   /** make the lesson what it was at this version (adds a version; nothing is lost) */
   restore: (versionId: number) => Promise<void>

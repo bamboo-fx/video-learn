@@ -100,6 +100,13 @@ export interface VersionInfo {
   updated_at: string
 }
 
+/** A page of the history, newest first. */
+export interface VersionPage {
+  versions: VersionInfo[]
+  /** there are older versions than these */
+  more: boolean
+}
+
 export interface VersionFull extends VersionInfo {
   storyboard: Storyboard
   repo_sha: string
@@ -218,7 +225,9 @@ export const api = {
   claim: (id: string, token: string) => request<Project>("POST", `/api/projects/${id}/claim`, { token }),
 
   // history
-  versions: (id: string) => request<{ versions: VersionInfo[] }>("GET", `/api/projects/${id}/versions`).then((r) => r.versions),
+  /** a page of the history, newest first; `before` = the oldest version id already shown */
+  versions: (id: string, before?: number) =>
+    request<VersionPage>("GET", `/api/projects/${id}/versions${before === undefined ? "" : `?before=${before}`}`),
   version: (id: string, versionId: number) => request<VersionFull>("GET", `/api/projects/${id}/versions/${versionId}`),
   nameVersion: (id: string, name: string) => request<VersionInfo>("POST", `/api/projects/${id}/versions`, { name }),
   restore: (id: string, versionId: number) => request<Project>("POST", `/api/projects/${id}/versions/${versionId}/restore`),

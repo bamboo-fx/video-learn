@@ -171,6 +171,14 @@ def member_of(session: Session, project_id: str, browser: str) -> Member | None:
     return session.exec(select(Member).where(Member.project_id == project_id, Member.browser == browser)).first()
 
 
+def lock_project(session: Session, project_id: str) -> None:
+    """Hold the lesson's row until this transaction ends, the way every storyboard change does
+    (its UPDATE takes the row). Things that read and then write around a change (naming the
+    current version, counting editors before adding one) take it first, so a change can't land
+    between their read and their write. Works on SQLite too, where it takes the write lock."""
+    session.exec(update(Project).where(col(Project.id) == project_id).values(rev=func.coalesce(Project.rev, 0)))
+
+
 def editable_project(session: Session, project_id: str, owner: str) -> Project:
     """The lesson, for anyone who can change it: its owner, and people the owner invited."""
     project = load_project(session, project_id)
@@ -406,7 +414,8 @@ def save_storyboard(project_id: str, body: StoryboardIn, session: SessionDep, ow
             .values(storyboard=saved, title=board.title, status="ready", error="", updated_at=now(), rev=rev + 1)
         ).rowcount
         if applied:
-            history.record(session, project_id, saved, kind="hand", author=author, repo_sha=project.repo_sha or "", before=before)
+            history.record(session, project_id, saved, kind="hand", author=author, repo_sha=project.repo_sha or "", before=before,
+                           fold=not clashes)
             session.commit()
             project = session.get(Project, project_id)
             session.refresh(project)
@@ -562,7 +571,7 @@ def write_project(project_id: str, session: SessionDep, owner: OwnerDep):
 
     project = session.get(Project, project_id)
     topic, notes, level, minutes, repo, ref = project.topic, project.notes, project.level, project.minutes, project.repo, project.repo_ref or ""
-    before, author = project.storyboard, name_of(session, project, owner)
+    before, before_sha, author = project.storyboard, project.repo_sha or "", name_of(session, project, owner)
     voice_id = project.voice_id or tts.voice_id()
     session.close()  # don't hold a database connection while GitHub or Claude works
     progress = progress_writer(project_id)
@@ -609,8 +618,8 @@ def write_project(project_id: str, session: SessionDep, owner: OwnerDep):
     ).rowcount
     if saved:
         # a rewrite replaces everything, so the lesson it replaced must stay reachable
-        history.record(session, project_id, board.model_dump(), kind="write", author=author, repo_sha=repo_sha, before=before,
-                       message="Claude rewrote the lesson" if before else "Claude wrote the lesson")
+        history.record(session, project_id, board.model_dump(), kind="write", author=author, repo_sha=repo_sha or before_sha,
+                       before=before, before_sha=before_sha, message="Claude rewrote the lesson" if before else "Claude wrote the lesson")
     session.commit()
     if not saved:
         raise ApiError(409, "changed_meanwhile", "The lesson changed while Claude was writing it, so this version wasn't saved.")
@@ -801,14 +810,19 @@ def version_of(session: Session, project_id: str, version_id: int) -> Version:
     return version
 
 
+VERSIONS_PAGE = 50
+
+
 @app.get("/api/projects/{project_id}/versions")
-def list_versions(project_id: str, session: SessionDep, owner: OwnerDep):
-    """The lesson's history, newest first. For the people who can edit it: earlier drafts
-    aren't part of what a share link shows."""
+def list_versions(project_id: str, session: SessionDep, owner: OwnerDep, before: int | None = None):
+    """The lesson's history, newest first, a page at a time (`before` = the oldest version id
+    already shown). For the people who can edit it: earlier drafts aren't part of what a share
+    link shows."""
     project = editable_project(session, project_id, owner)
     newest = history.latest(session, project_id)
     current = newest.id if newest and newest.storyboard == project.storyboard else None
-    return {"versions": [history.meta(v, v.id == current) for v in history.listing(session, project_id)]}
+    rows = history.listing(session, project_id, limit=VERSIONS_PAGE + 1, before=before)
+    return {"versions": [history.meta(v, v.id == current) for v in rows[:VERSIONS_PAGE]], "more": len(rows) > VERSIONS_PAGE}
 
 
 @app.get("/api/projects/{project_id}/versions/{version_id}")
@@ -827,6 +841,8 @@ class VersionIn(BaseModel):
 def name_version(project_id: str, body: VersionIn, session: SessionDep, owner: OwnerDep):
     """Keep the lesson as it is now under a name ("before the review"), like a commit message."""
     project = editable_project(session, project_id, owner)
+    lock_project(session, project_id)  # no save may fold into the version while it's being named
+    session.refresh(project)
     if not project.storyboard:
         raise ApiError(409, "not_written", "There's no lesson to save a version of yet.")
     version = history.name_current(session, project_id, project.storyboard, body.name, name_of(session, project, owner), project.repo_sha or "")
@@ -858,7 +874,7 @@ def restore_version(project_id: str, version_id: int, session: SessionDep, owner
             session.rollback()
             raise ApiError(409, "changed_meanwhile", "The lesson changed just now. Look at it again, and go back if you still want to.")
         history.record(session, project_id, version.storyboard, kind="restore", author=name_of(session, project, owner),
-                       repo_sha=version.repo_sha or project.repo_sha or "", before=before,
+                       repo_sha=version.repo_sha or project.repo_sha or "", before=before, before_sha=project.repo_sha or "",
                        message=f"Went back to version {version.number}" + (f", “{version.name}”" if version.name else ""))
         session.commit()
         project = session.get(Project, project_id)
@@ -921,6 +937,8 @@ def join_project(project_id: str, body: JoinIn, session: SessionDep, owner: Owne
     project = load_project(session, project_id)
     member = member_of(session, project_id, owner)
     if project.owner != owner and member is None:
+        lock_project(session, project_id)  # two people joining at once count the editors one after the other
+        session.refresh(project)
         if not project.invite_token or not hmac.compare_digest(project.invite_token.encode(), body.token.encode()):
             raise ApiError(403, "bad_invite", "That invite link doesn't work any more. Ask whoever sent it for a new one.")
         if len(members_of(session, project_id)) >= MAX_MEMBERS:
