@@ -233,6 +233,8 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
   const [failed, setFailed] = useState<Record<string, string>>({})
   const [aiBusy, setAiBusy] = useState(false)
   const [restoring, setRestoring] = useState(false)
+  // counts finished saves, so a poll result set aside during a save is looked at again after it
+  const [saves, setSaves] = useState(0)
   const voices = project.voices
 
   const dirty = useRef(false)
@@ -316,6 +318,7 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
       await run
     } finally {
       if (inflight.current === run) inflight.current = null
+      setSaves((n) => n + 1)
     }
   }, [project.id, adopt])
 
@@ -437,11 +440,13 @@ function Workspace({ project, aiReady, voiceReady }: { project: Project; aiReady
   })
   const remote = watch.data
   useEffect(() => {
-    // with edits pending there's nothing to fetch for: the save about to happen brings theirs back
+    // With edits pending there's nothing to fetch for: the save about to happen brings theirs
+    // back. A poll set aside during a save is checked again once it finishes (`saves`), since
+    // someone may have saved after ours landed, and an identical next poll won't re-run this.
     if (!remote || dirty.current || inflight.current) return
-    if (remote.rev !== project.rev || remote.editors !== Math.max(0, project.people.length - 1)) qc.invalidateQueries({ queryKey: key })
+    if (remote.rev > project.rev || remote.editors !== Math.max(0, project.people.length - 1)) qc.invalidateQueries({ queryKey: key })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [remote])
+  }, [remote, saves])
 
   // a name chosen on another lesson carries over to this one, so nobody is asked twice
   useEffect(() => {

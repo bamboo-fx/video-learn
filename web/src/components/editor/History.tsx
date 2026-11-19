@@ -25,10 +25,9 @@ interface Props {
 const why = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback)
 
 export function History({ host, viewing, onView, locked }: Props) {
-  // The newest page reloads whenever the lesson changes; pages asked for with "Show older"
-  // stay below it.
-  const [newest, setNewest] = useState<{ versions: VersionInfo[]; more: boolean } | null>(null)
-  const [older, setOlder] = useState<{ versions: VersionInfo[]; more: boolean } | null>(null)
+  // One list, newest first. The newest page reloads whenever the lesson changes and goes on
+  // top of what's shown; "Show older" adds the page after the bottom.
+  const [list, setList] = useState<{ versions: VersionInfo[]; more: boolean } | null>(null)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<{ id: number; what: "view" | "restore" } | null>(null)
@@ -42,7 +41,7 @@ export function History({ host, viewing, onView, locked }: Props) {
     host.list().then(
       (page) => {
         if (mine !== asked.current) return // a newer request is on its way
-        setNewest(page)
+        setList((prev) => onTop(prev, page))
         setError(null)
       },
       (e) => mine === asked.current && setError(why(e, "The history didn't load.")),
@@ -53,17 +52,16 @@ export function History({ host, viewing, onView, locked }: Props) {
   // on opening, and again whenever the lesson changes (the list stays on screen meanwhile)
   useEffect(load, [load, host.rev])
 
-  // the newest page, then the older pages' versions that come after it (never one twice)
-  const oldestNew = newest?.versions.length ? newest.versions[newest.versions.length - 1].id : Infinity
-  const versions = newest ? [...newest.versions, ...(older?.versions ?? []).filter((v) => v.id < oldestNew)] : null
-  const more = older ? older.more : !!newest?.more
+  const versions = list?.versions ?? null
+  const more = !!list?.more
 
   const loadOlder = async () => {
     if (!versions?.length || loadingOlder) return
     setLoadingOlder(true)
     try {
-      const page = await host.list(versions[versions.length - 1].id)
-      setOlder((o) => ({ versions: [...(o?.versions ?? []), ...page.versions], more: page.more }))
+      const bottom = versions[versions.length - 1].id
+      const page = await host.list(bottom)
+      setList((l) => (l ? { versions: [...l.versions, ...page.versions.filter((v) => v.id < bottom)], more: page.more } : page))
     } catch (e) {
       toast.error(why(e, "The older versions didn't load."))
     } finally {
@@ -198,6 +196,18 @@ export function History({ host, viewing, onView, locked }: Props) {
       ) : null}
     </div>
   )
+}
+
+/** The newest page put on top of the list already shown. Versions are numbered in order, so
+ * when the page reaches down into what's shown, everything below the page's last version is
+ * still right; when it doesn't (many versions were made since), what's shown would leave a
+ * gap, so the list starts over from the page. */
+function onTop(prev: { versions: VersionInfo[]; more: boolean } | null, page: { versions: VersionInfo[]; more: boolean }) {
+  if (!prev || !page.versions.length || !page.more) return page
+  const last = page.versions[page.versions.length - 1].id
+  if (!prev.versions.some((v) => v.id >= last)) return page
+  const below = prev.versions.filter((v) => v.id < last)
+  return below.length ? { versions: [...page.versions, ...below], more: prev.more } : page
 }
 
 /** What happened in this version, in the words the page uses elsewhere. */
